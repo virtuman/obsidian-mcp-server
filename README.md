@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-1.4.0-green.svg)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/Version-1.1.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/Version-1.2.0-blue.svg)]()
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-blue.svg)]()
 [![GitHub](https://img.shields.io/github/stars/cyanheads/obsidian-mcp-server?style=social)](https://github.com/cyanheads/obsidian-mcp-server)
@@ -24,6 +24,12 @@ Requires the Local REST API plugin in Obsidian.
 - Full-text and JsonLogic-based complex search
 - Configurable context boundaries and token limits
 - Optimized query processing
+
+### Property Management
+- YAML frontmatter parsing and validation
+- Intelligent property merging and updates
+- Automatic timestamp management
+- Custom field support
 
 ### Security & Performance
 - API key authentication and rate limiting
@@ -120,6 +126,38 @@ obsidian_patch_content: {
 }
 ```
 
+### Property Management
+```typescript
+// Get note properties
+obsidian_get_properties: {
+  filepath: string  // Path relative to vault root
+}
+
+// Update note properties
+obsidian_update_properties: {
+  filepath: string,  // Path relative to vault root
+  properties: {
+    title?: string,
+    created?: string,  // ISO date
+    modified?: string, // ISO date (auto-updated)
+    author?: string,
+    type?: Array<"concept" | "architecture" | "specification" | 
+      "protocol" | "api" | "research" | "implementation" | 
+      "guide" | "reference">,
+    tags?: string[],  // Must start with #
+    status?: Array<"draft" | "in-progress" | "review" | "complete">,
+    version?: string,
+    platform?: string,
+    repository?: string,  // URL
+    dependencies?: string[],
+    sources?: string[],
+    urls?: string[],      // URLs
+    papers?: string[],
+    custom?: Record<string, unknown>
+  }
+}
+```
+
 ## Best Practices
 
 ### File Operations
@@ -133,6 +171,12 @@ obsidian_patch_content: {
 - Control context boundaries
 - Handle large result sets
 - Consider token limits
+
+### Property Management
+- Validate property values before updates
+- Use appropriate property types
+- Handle array merging appropriately
+- Consider custom field implications
 
 ### Error Prevention
 - Validate inputs thoroughly
