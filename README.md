@@ -42,6 +42,11 @@ npm install
 npm run build
 ```
 
+Or install from npm:
+```bash
+npm install obsidian-mcp-server
+```
+
 ## Configuration
 
 Add to your MCP client settings:
@@ -142,6 +147,18 @@ obsidian_patch_content: {
 3. Submit a Pull Request
 
 For bugs and features, create an issue at [https://github.com/cyanheads/obsidian-mcp-server/issues](https://github.com/cyanheads/obsidian-mcp-server/issues).
+
+## Publishing
+
+The package is automatically published to npm when version tags are pushed:
+
+```bash
+# Update version in package.json
+npm version patch  # or minor, or major
+git push --follow-tags
+```
+
+This will trigger the GitHub Action to build and publish the package.
 
 ## License
 
