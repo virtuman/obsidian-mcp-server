@@ -1,11 +1,28 @@
 import axios from "axios";
 import type { AxiosInstance, AxiosError, AxiosRequestConfig } from "axios";
-import { ObsidianConfig, ObsidianError, ObsidianFile, SearchResult, DEFAULT_OBSIDIAN_CONFIG } from "./types.js";
+import { ObsidianConfig, ObsidianError, ObsidianFile, SearchResult, DEFAULT_OBSIDIAN_CONFIG, ObsidianServerConfig, JsonLogicQuery } from "./types.js";
 import { Agent } from "node:https";
+import { readFileSync } from "fs";
+import { fileURLToPath } from 'url';
+import { dirname, join } from "path";
+
+// Get package version for user agent
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packagePath = join(__dirname, '..', '..', 'package.json');
+const VERSION = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(packagePath, 'utf-8'));
+    return pkg.version;
+  } catch (error) {
+    console.warn('Could not read package.json version:', error);
+    return '1.1.0'; // Fallback version
+  }
+})();
 
 export class ObsidianClient {
   private client: AxiosInstance;
-  private config: Required<ObsidianConfig> & typeof DEFAULT_OBSIDIAN_CONFIG;
+  private config: Required<ObsidianConfig> & ObsidianServerConfig;
 
   constructor(config: ObsidianConfig) {
     if (!config.apiKey) {
@@ -15,58 +32,46 @@ export class ObsidianClient {
     // Combine defaults with provided config
     this.config = {
       ...DEFAULT_OBSIDIAN_CONFIG,
-      verifySSL: config.verifySSL ?? false, // Default to accepting self-signed certs for Obsidian
-      apiKey: config.apiKey
+      verifySSL: config.verifySSL ?? process.env.NODE_ENV === 'production', // Enable SSL verification in production by default
+      apiKey: config.apiKey,
+      timeout: config.timeout ?? 5000,
+      maxContentLength: config.maxContentLength ?? 50 * 1024 * 1024, // 50MB
+      maxBodyLength: config.maxBodyLength ?? 50 * 1024 * 1024 // 50MB
     };
 
-    // Configure HTTPS agent for self-signed certificates
+    // Configure HTTPS agent
     const httpsAgent = new Agent({
-      rejectUnauthorized: this.config.verifySSL,
-      requestCert: true,
-      // Special handling for localhost/127.0.0.1
-      checkServerIdentity: (host, cert) => {
-        const localHosts = ['127.0.0.1', 'localhost'];
-        if (localHosts.includes(host)) {
-          return undefined; // Accept self-signed cert for local development
-        }
-        // For non-local hosts, perform normal certificate validation
-        if (this.config.verifySSL) {
-          const error = new Error('Invalid certificate');
-          error.name = 'CertificateError';
-          return error;
-        }
-        return undefined;
-      }
+      rejectUnauthorized: this.config.verifySSL
     });
 
     const axiosConfig: AxiosRequestConfig = {
       baseURL: this.getBaseUrl(),
       headers: {
         ...this.getHeaders(),
-        // Add security headers
+        // Security headers
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'DENY',
         'X-XSS-Protection': '1; mode=block',
         'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'
       },
-      validateStatus: (status) => {
-        // Accept all 2xx status codes as success
-        return status >= 200 && status < 300;
-      },
-      timeout: 6000, // 6 seconds
+      validateStatus: (status) => status >= 200 && status < 300,
+      timeout: this.config.timeout,
       maxRedirects: 5,
-      maxContentLength: 50 * 1024 * 1024, // 50MB max response size
-      maxBodyLength: 50 * 1024 * 1024, // 50MB max request body size
+      maxContentLength: this.config.maxContentLength,
+      maxBodyLength: this.config.maxBodyLength,
       httpsAgent,
       // Additional security configurations
       xsrfCookieName: 'XSRF-TOKEN',
       xsrfHeaderName: 'X-XSRF-TOKEN',
-      withCredentials: true, // Enable if using cookies/sessions
-      decompress: true // Handle compressed responses
+      withCredentials: true,
+      decompress: true
     };
 
     if (!this.config.verifySSL) {
-      console.warn("WARNING: SSL verification is disabled. This is expected for local Obsidian development but not recommended for production use.");
+      console.warn(
+        "WARNING: SSL verification is disabled. This is not recommended for production use.",
+        process.env.NODE_ENV === 'production' ? "Consider enabling SSL verification." : "This is acceptable for local development only."
+      );
     }
 
     this.client = axios.create(axiosConfig);
@@ -80,16 +85,16 @@ export class ObsidianClient {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.config.apiKey}`,
       'Accept': 'application/json',
-      'Content-Type': 'application/json',
-      'User-Agent': `obsidian-mcp-server/1.0.0` // Identify our client
+      'User-Agent': `obsidian-mcp-server/${VERSION}`
     };
 
     // Sanitize headers
-    Object.keys(headers).forEach(key => {
-      headers[key] = this.sanitizeHeader(headers[key]);
-    });
-
-    return headers;
+    return Object.fromEntries(
+      Object.entries(headers).map(([key, value]) => [
+        key,
+        this.sanitizeHeader(value)
+      ])
+    );
   }
 
   private sanitizeHeader(value: string): string {
@@ -114,11 +119,11 @@ export class ObsidianClient {
     try {
       return await operation();
     } catch (error) {
-      if (error && typeof error === 'object' && 'isAxiosError' in error) {
-        const axiosError = error as AxiosError;
+      if (axios.isAxiosError(error)) {
+        const axiosError = error as AxiosError<{ errorCode?: number; message?: string }>;
         const response = axiosError.response;
-        const errorData = response?.data as { errorCode?: number; message?: string } | undefined;
-        const code = errorData?.errorCode ?? -1;
+        const errorData = response?.data;
+        const code = errorData?.errorCode ?? response?.status ?? 500;
         const message = errorData?.message ?? axiosError.message ?? "Unknown error";
         throw new ObsidianError(message, code, errorData);
       }
@@ -128,13 +133,9 @@ export class ObsidianClient {
 
   async listFilesInVault(): Promise<ObsidianFile[]> {
     return this.safeRequest(async () => {
-      // Add request ID for tracing
       const requestId = crypto.randomUUID();
       console.debug(`[${requestId}] Listing vault files`);
-      const response = await this.client.get("/vault/");
-      if (response.status !== 200) {
-        throw new ObsidianError("Failed to list files", response.status, response.data);
-      }
+      const response = await this.client.get<{ files: ObsidianFile[] }>("/vault/");
       return response.data.files;
     });
   }
@@ -144,10 +145,7 @@ export class ObsidianClient {
     return this.safeRequest(async () => {
       const requestId = crypto.randomUUID();
       console.debug(`[${requestId}] Listing files in directory: ${dirpath}`);
-      const response = await this.client.get(`/vault/${dirpath}/`);
-      if (response.status !== 200) {
-        throw new ObsidianError("Failed to list files in directory", response.status, response.data);
-      }
+      const response = await this.client.get<{ files: ObsidianFile[] }>(`/vault/${dirpath}/`);
       return response.data.files;
     });
   }
@@ -157,10 +155,7 @@ export class ObsidianClient {
     return this.safeRequest(async () => {
       const requestId = crypto.randomUUID();
       console.debug(`[${requestId}] Getting file contents: ${filepath}`);
-      const response = await this.client.get(`/vault/${filepath}`);
-      if (response.status !== 200) {
-        throw new ObsidianError("Failed to get file contents", response.status, response.data);
-      }
+      const response = await this.client.get<string>(`/vault/${filepath}`);
       return response.data;
     });
   }
@@ -169,15 +164,12 @@ export class ObsidianClient {
     return this.safeRequest(async () => {
       const requestId = crypto.randomUUID();
       console.debug(`[${requestId}] Performing simple search: ${query}`);
-      const response = await this.client.post("/search/simple/", undefined, {
+      const response = await this.client.post<SearchResult[]>("/search/simple/", undefined, {
         params: {
           query,
           contextLength
         }
       });
-      if (response.status !== 200) {
-        throw new ObsidianError("Search failed", response.status, response.data);
-      }
       return response.data;
     });
   }
@@ -190,7 +182,7 @@ export class ObsidianClient {
     return this.safeRequest(async () => {
       const requestId = crypto.randomUUID();
       console.debug(`[${requestId}] Appending content to: ${filepath}`);
-      const response = await this.client.post(
+      await this.client.post(
         `/vault/${filepath}`,
         content,
         {
@@ -199,56 +191,35 @@ export class ObsidianClient {
           }
         }
       );
-      // Accept both 200 OK and 201 Created as success
-      if (response.status !== 200 && response.status !== 201) {
-        throw new ObsidianError("Failed to append content", response.status, response.data);
-      }
     });
   }
 
-  async patchContent(
-    filepath: string,
-    operation: string,
-    targetType: string,
-    target: string,
-    content: string
-  ): Promise<void> {
+  async updateContent(filepath: string, content: string): Promise<void> {
     this.validateFilePath(filepath);
     if (!content || typeof content !== 'string') {
       throw new ObsidianError('Invalid content: Content must be a non-empty string', 400);
     }
-    if (!['append', 'prepend', 'replace'].includes(operation)) {
-      throw new ObsidianError('Invalid operation: Must be append, prepend, or replace', 400);
-    }
-    if (!['heading', 'block', 'frontmatter'].includes(targetType)) {
-      throw new ObsidianError('Invalid target type: Must be heading, block, or frontmatter', 400);
-    }
+
     return this.safeRequest(async () => {
       const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Patching content in: ${filepath}`);
-      const response = await this.client.patch(
+      console.debug(`[${requestId}] Updating content in: ${filepath}`);
+      await this.client.put(
         `/vault/${filepath}`,
         content,
-        {
+        { 
           headers: {
-            "Content-Type": "text/markdown",
-            Operation: operation,
-            "Target-Type": targetType,
-            Target: encodeURIComponent(target)
+            "Content-Type": "text/markdown"
           }
         }
       );
-      if (response.status !== 200) {
-        throw new ObsidianError("Failed to patch content", response.status, response.data);
-      }
     });
   }
 
-  async searchJson(query: Record<string, any>): Promise<any> {
+  async searchJson(query: JsonLogicQuery): Promise<SearchResult[]> {
     return this.safeRequest(async () => {
       const requestId = crypto.randomUUID();
       console.debug(`[${requestId}] Performing complex search with query:`, JSON.stringify(query));
-      const response = await this.client.post(
+      const response = await this.client.post<SearchResult[]>(
         "/search/",
         query,
         {
@@ -258,9 +229,6 @@ export class ObsidianClient {
           }
         }
       );
-      if (response.status !== 200) {
-        throw new ObsidianError("Complex search failed", response.status, response.data);
-      }
       return response.data;
     });
   }
