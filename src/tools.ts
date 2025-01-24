@@ -138,11 +138,31 @@ export class ListFilesInVaultToolHandler extends BaseToolHandler<Record<string, 
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Lists all files and directories in the root directory of your Obsidian vault.",
+      description: "Lists all files and directories in the root directory of your Obsidian vault. Returns a hierarchical structure of files and folders, including metadata like file type.",
       examples: [
         {
           description: "List all files in vault",
           args: {}
+        },
+        {
+          description: "Example response",
+          args: {},
+          response: [
+            {
+              "path": "Daily Notes",
+              "type": "folder",
+              "children": [
+                { "path": "Daily Notes/2025-01-24.md", "type": "file" }
+              ]
+            },
+            {
+              "path": "Projects",
+              "type": "folder",
+              "children": [
+                { "path": "Projects/MCP.md", "type": "file" }
+              ]
+            }
+          ]
         }
       ],
       inputSchema: {
@@ -171,13 +191,36 @@ export class ListFilesInDirToolHandler extends BaseToolHandler<ListFilesArgs> {
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Lists all files and directories that exist in a specific Obsidian directory.",
+      description: "Lists all files and directories that exist in a specific Obsidian directory. Returns a hierarchical structure showing files, folders, and their relationships. Useful for exploring vault organization and finding specific files.",
       examples: [
         {
           description: "List files in Documents folder",
           args: {
             dirpath: "Documents"
           }
+        },
+        {
+          description: "Example response structure",
+          args: {
+            dirpath: "Projects"
+          },
+          response: [
+            {
+              "path": "Projects/Active",
+              "type": "folder",
+              "children": [
+                { "path": "Projects/Active/ProjectA.md", "type": "file" },
+                { "path": "Projects/Active/ProjectB.md", "type": "file" }
+              ]
+            },
+            {
+              "path": "Projects/Archive",
+              "type": "folder",
+              "children": [
+                { "path": "Projects/Archive/OldProject.md", "type": "file" }
+              ]
+            }
+          ]
         }
       ],
       inputSchema: {
@@ -212,7 +255,21 @@ export class GetFileContentsToolHandler extends BaseToolHandler<FileContentsArgs
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Return the content of a single file in your vault.",
+      description: "Return the content of a single file in your vault. Supports markdown files, text files, and other readable formats. Returns the raw content including any YAML frontmatter.",
+      examples: [
+        {
+          description: "Get content of a markdown note",
+          args: {
+            filepath: "Projects/research.md"
+          }
+        },
+        {
+          description: "Get content of a configuration file",
+          args: {
+            filepath: "configs/settings.yml"
+          }
+        }
+      ],
       inputSchema: {
         type: "object",
         properties: {
@@ -245,17 +302,43 @@ export class FindInFileToolHandler extends BaseToolHandler<SearchArgs> {
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Simple search that returns filenames of documents matching a specified text query across all files in the vault.",
+      description: "Full-text search across all files in the vault. Returns matching files with surrounding context for each match. Useful for finding specific content, references, or patterns across notes.",
+      examples: [
+        {
+          description: "Search for a specific term",
+          args: {
+            query: "neural networks",
+            contextLength: 20
+          }
+        },
+        {
+          description: "Search with default context",
+          args: {
+            query: "#todo"
+          },
+          response: [
+            {
+              "filename": "Projects/AI.md",
+              "matches": [
+                {
+                  "context": "Research needed:\n#todo Implement transformer architecture\nDeadline: Next week",
+                  "match": { "start": 15, "end": 45 }
+                }
+              ]
+            }
+          ]
+        }
+      ],
       inputSchema: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "Text to search for in the vault."
+            description: "Text pattern to search for. Can include tags, keywords, or phrases."
           },
           contextLength: {
             type: "integer",
-            description: "How much context to use for matching (default: 10)",
+            description: "Number of characters to include before and after each match for context (default: 10)",
             default: 10
           }
         },
@@ -383,23 +466,45 @@ export class ComplexSearchToolHandler extends BaseToolHandler<ComplexSearchArgs>
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Complex search for documents using a JsonLogic query.",
+      description: "Advanced search functionality using JsonLogic queries. Enables complex file filtering based on paths, metadata, modification times, and content patterns. Supports logical operations, date comparisons, and pattern matching.",
       examples: [
         {
-          description: "Find all markdown files",
+          description: "Find markdown files in a specific folder",
           args: {
             query: {
-              "glob": ["*.md", {"var": "path"}]
+              "and": [
+                {"glob": ["Projects/*.md", {"var": "path"}]},
+                {"contains": [{"var": "content"}, "#active"]}
+              ]
             }
           }
         },
         {
-          description: "Find files modified in last week",
+          description: "Find recently modified documentation",
           args: {
             query: {
-              ">=": [
-                {"var": "mtime"},
-                {"date": "-7 days"}
+              "and": [
+                {"glob": ["docs/*.md", {"var": "path"}]},
+                {">=": [
+                  {"var": "mtime"},
+                  {"date": "-7 days"}
+                ]},
+                {"!=": [{"var": "size"}, 0]}
+              ]
+            }
+          }
+        },
+        {
+          description: "Find files by multiple criteria",
+          args: {
+            query: {
+              "and": [
+                {"or": [
+                  {"glob": ["*.md", {"var": "path"}]},
+                  {"glob": ["*.txt", {"var": "path"}]}
+                ]},
+                {"contains": [{"var": "content"}, "TODO"]},
+                {"<": [{"var": "size"}, 10000]}
               ]
             }
           }
