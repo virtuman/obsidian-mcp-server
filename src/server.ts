@@ -10,53 +10,13 @@ import {
   CallToolRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import { ObsidianClient } from "./obsidian.js";
-import { ObsidianError } from "./types.js";
+import { ObsidianError, DEFAULT_RATE_LIMIT_CONFIG, RateLimitConfig } from "./types.js";
 import type { ToolHandler } from "./types.js";
-
-// Rate limiting configuration
-const RATE_LIMITS = {
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  maxRequests: 200 // Maximum requests per window
-};
-
-// Request tracking for rate limiting
-const requestCounts = new Map<string, { count: number; resetTime: number }>();
-
-function checkRateLimit(toolName: string): boolean {
-  const now = Date.now();
-  const requestInfo = requestCounts.get(toolName);
-
-  if (!requestInfo || now > requestInfo.resetTime) {
-    // Reset counter for new window
-    requestCounts.set(toolName, {
-      count: 1,
-      resetTime: now + RATE_LIMITS.windowMs
-    });
-    return true;
-  }
-
-  if (requestInfo.count >= RATE_LIMITS.maxRequests) {
-    return false;
-  }
-
-  requestInfo.count++;
-  return true;
-}
-
-// Clean up expired rate limit entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [tool, info] of requestCounts.entries()) {
-    if (now > info.resetTime) {
-      requestCounts.delete(tool);
-    }
-  }
-}, 60000); // Clean up every minute
 import {
   ListFilesInVaultToolHandler,
   ListFilesInDirToolHandler,
   GetFileContentsToolHandler,
-  SearchToolHandler,
+  FindInFileToolHandler,
   AppendContentToolHandler,
   PatchContentToolHandler,
   ComplexSearchToolHandler
@@ -70,28 +30,73 @@ if (!API_KEY) {
   throw new Error("OBSIDIAN_API_KEY environment variable is required");
 }
 
+// Get rate limit config from environment or use defaults
+const rateLimitConfig: RateLimitConfig = {
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? String(DEFAULT_RATE_LIMIT_CONFIG.windowMs)),
+  maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS ?? String(DEFAULT_RATE_LIMIT_CONFIG.maxRequests))
+};
+
+// Request tracking for rate limiting
+const requestCounts = new Map<string, { count: number; resetTime: number }>();
+
+function checkRateLimit(toolName: string): boolean {
+  const now = Date.now();
+  const requestInfo = requestCounts.get(toolName);
+
+  if (!requestInfo || now > requestInfo.resetTime) {
+    // Reset counter for new window
+    requestCounts.set(toolName, {
+      count: 1,
+      resetTime: now + rateLimitConfig.windowMs
+    });
+    return true;
+  }
+
+  if (requestInfo.count >= rateLimitConfig.maxRequests) {
+    return false;
+  }
+
+  requestInfo.count++;
+  return true;
+}
+
+// Clean up expired rate limit entries periodically
+const cleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [tool, info] of requestCounts.entries()) {
+    if (now > info.resetTime) {
+      requestCounts.delete(tool);
+    }
+  }
+}, 60000); // Clean up every minute
+
 // Initialize Obsidian client
 const client = new ObsidianClient({ 
   apiKey: API_KEY,
-  verifySSL: false // Explicitly disable SSL verification for local development
+  verifySSL: process.env.NODE_ENV === 'production' // Enable SSL verification in production
 });
 
 // Initialize tool handlers
-const toolHandlers = new Map<string, ToolHandler<any>>([
+type AnyToolHandler = ToolHandler<any>;
+const toolHandlers = new Map<string, AnyToolHandler>();
+
+const handlers: AnyToolHandler[] = [
   new ListFilesInVaultToolHandler(client),
   new ListFilesInDirToolHandler(client),
   new GetFileContentsToolHandler(client),
-  new SearchToolHandler(client),
+  new FindInFileToolHandler(client),
   new AppendContentToolHandler(client),
   new PatchContentToolHandler(client),
   new ComplexSearchToolHandler(client)
-].map(handler => [handler.name, handler]));
+];
+
+handlers.forEach(handler => toolHandlers.set(handler.name, handler));
 
 // Create MCP server
 const server = new Server(
   {
     name: "obsidian-mcp-server",
-    version: "1.0.0"
+    version: process.env.npm_package_version ?? "1.1.0" // Use version from package.json
   },
   {
     capabilities: {
@@ -135,6 +140,11 @@ function validateToolArguments(args: unknown, schema: any): { valid: boolean; er
       continue;
     }
 
+    // Skip validation for undefined optional fields
+    if (value === undefined && !required.includes(key)) {
+      continue;
+    }
+
     // Type validation
     if (propSchema.type === 'string' && typeof value !== 'string') {
       errors.push(`Field ${key} must be a string`);
@@ -147,8 +157,20 @@ function validateToolArguments(args: unknown, schema: any): { valid: boolean; er
     }
 
     // Enum validation
-    if (propSchema.enum && !propSchema.enum.includes(value)) {
+    if (propSchema.enum && value !== undefined && !propSchema.enum.includes(value)) {
       errors.push(`Field ${key} must be one of: ${propSchema.enum.join(', ')}`);
+    }
+
+    // Format validation for paths
+    if (propSchema.format === 'path' && typeof value === 'string') {
+      // Prevent path traversal
+      if (value.includes('../') || value.includes('..\\')) {
+        errors.push(`Field ${key} contains invalid path traversal`);
+      }
+      // Prevent absolute paths
+      if (value.startsWith('/') || /^[a-zA-Z]:/.test(value)) {
+        errors.push(`Field ${key} must be a relative path`);
+      }
     }
   }
 
@@ -172,7 +194,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   // Add timeout handling
-  const timeoutMs = 60000; // 60 second timeout
+  const timeoutMs = parseInt(process.env.TOOL_TIMEOUT_MS ?? '60000'); // 60 second default timeout
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => {
       reject(new ObsidianError(`Tool execution timed out after ${timeoutMs}ms`, 408));
@@ -192,48 +214,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     // Race between tool execution and timeout
     const content = await Promise.race([
-      handler.runTool(args as any),
+      handler.runTool(args),
       timeoutPromise
     ]);
     return { content };
   } catch (error) {
-    console.error("Tool execution failed:", error);
+    if (error instanceof ObsidianError) {
+      // Check if the operation actually succeeded despite the error
+      if (error.code === 204) {
+        return {
+          content: [{
+            type: "text",
+            text: "Operation completed successfully"
+          }]
+        };
+      }
+      throw error;
+    }
     
-    // Log the error for debugging
-    console.error(`Tool execution error details:`, {
-      error,
+    // Enhanced error logging
+    console.error("Tool execution error:", {
       name: error instanceof Error ? error.name : 'Unknown',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      toolName: name,
+      args
     });
 
-    // Check if the operation actually succeeded despite the error
-    if (error instanceof ObsidianError && error.code === 204) {
-      // Return success response since we know the operation worked
-      return {
-        content: [{
-          type: "text",
-          text: "Operation completed successfully"
-        }]
-      };
-    }
-
-    // Handle other errors
-    if (error instanceof ObsidianError) {
-      throw error;
-    } else if (error instanceof Error) {
+    if (error instanceof Error) {
       throw new ObsidianError(
         `Tool '${name}' execution failed: ${error.message}`,
         500,
         { originalError: error.stack }
       );
-    } else {
-      throw new ObsidianError(
-        "Tool execution failed with unknown error",
-        500,
-        { error }
-      );
     }
+    
+    throw new ObsidianError(
+      "Tool execution failed with unknown error",
+      500,
+      { error }
+    );
   }
 });
 
@@ -244,6 +264,7 @@ server.onerror = (error) => {
 
 // Handle shutdown
 process.on("SIGINT", async () => {
+  clearInterval(cleanupInterval); // Clean up rate limit interval
   await server.close();
   process.exit(0);
 });

@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-1.4.0-green.svg)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/Version-1.1.0-blue.svg)]()
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-blue.svg)]()
 
@@ -277,11 +277,37 @@ obsidian_append_content: {
 
 // Patch Operations
 obsidian_patch_content: {
+  // Required parameters
   filepath: string,   // Target file path
   operation: "append" | "prepend" | "replace",
   targetType: "heading" | "block" | "frontmatter",
-  target: string,     // Target identifier
-  content: string     // Content to insert
+  target: string,     // Target identifier (heading path, block reference, or frontmatter field)
+  content: string,    // Content to insert
+
+  // Optional parameters
+  targetDelimiter?: string,      // Delimiter for nested targets (default: '::')
+  trimTargetWhitespace?: boolean, // Trim target whitespace (default: false)
+  contentType?: "text/markdown" | "application/json" // Content type for structured data
+}
+
+// Example: Add row to table with block reference
+obsidian_patch_content: {
+  filepath: "data.md",
+  operation: "append",
+  targetType: "block",
+  target: "table-ref-id",
+  content: '["Chicago, IL", "16"]',
+  contentType: "application/json"
+}
+
+// Example: Update nested heading with custom delimiter
+obsidian_patch_content: {
+  filepath: "notes.md",
+  operation: "append",
+  targetType: "heading",
+  target: "Projects->Tasks->Active",
+  targetDelimiter: "->",
+  content: "- [ ] New task"
 }
 ```
 
