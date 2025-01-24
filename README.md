@@ -2,14 +2,14 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-1.4.0-green.svg)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/Version-1.1.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/Version-1.1.1-blue.svg)]()
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-blue.svg)]()
 [![GitHub](https://img.shields.io/github/stars/cyanheads/obsidian-mcp-server?style=social)](https://github.com/cyanheads/obsidian-mcp-server)
 
 A Model Context Protocol server designed for LLMs to interact with Obsidian vaults. Built with TypeScript and featuring secure API communication, efficient file operations, and comprehensive search capabilities, it enables AI assistants to seamlessly manage knowledge bases through a clean, flexible tool interface.
 
-The Model Context Protocol (MCP) enables AI models to interact with external tools and resources through a standardized interface. This server implements MCP to provide LLMs with secure, token-aware access to Obsidian vaults.
+The Model Context Protocol (MCP) enables AI models to interact with external tools and resources through a standardized interface.
 
 Requires the Local REST API plugin in Obsidian.
 
