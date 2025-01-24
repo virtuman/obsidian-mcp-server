@@ -21,6 +21,10 @@ import {
   PatchContentToolHandler,
   ComplexSearchToolHandler
 } from "./tools.js";
+import {
+  GetPropertiesToolHandler,
+  UpdatePropertiesToolHandler
+} from "./propertyTools.js";
 
 // Load environment variables
 config();
@@ -87,7 +91,9 @@ const handlers: AnyToolHandler[] = [
   new FindInFileToolHandler(client),
   new AppendContentToolHandler(client),
   new PatchContentToolHandler(client),
-  new ComplexSearchToolHandler(client)
+  new ComplexSearchToolHandler(client),
+  new GetPropertiesToolHandler(client),
+  new UpdatePropertiesToolHandler(client)
 ];
 
 handlers.forEach(handler => toolHandlers.set(handler.name, handler));
