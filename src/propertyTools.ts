@@ -79,7 +79,7 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Update properties in an Obsidian note's YAML frontmatter. Intelligently merges arrays (tags, type, status), handles custom fields, and automatically updates the modified timestamp. Existing properties not included in the update are preserved.",
+      description: "Update properties in an Obsidian note's YAML frontmatter. Intelligently merges arrays (tags, type, status), handles custom fields, and automatically manages timestamps (created by Obsidian, modified by MCP server). Existing properties not included in the update are preserved.",
       examples: [
         {
           description: "Update basic metadata",
@@ -130,9 +130,8 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
             description: "Properties to update",
             properties: {
               title: { type: "string" },
-              created: { type: "string", format: "date-time" },
-              modified: { type: "string", format: "date-time" },
               author: { type: "string" },
+              // Note: created and modified timestamps are managed automatically
               type: {
                 type: "array",
                 items: {

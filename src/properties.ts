@@ -1,10 +1,11 @@
 import { parse, stringify } from 'yaml';
 import { ObsidianClient } from './obsidian.js';
-import { 
-  ObsidianProperties, 
-  ObsidianPropertiesSchema, 
+import {
+  ObsidianProperties,
+  ObsidianPropertiesSchema,
+  PropertyUpdateSchema,
   PropertyManagerResult,
-  ValidationResult 
+  ValidationResult
 } from './propertyTypes.js';
 
 export class PropertyManager {
@@ -62,7 +63,7 @@ export class PropertyManager {
    * Validate property values
    */
   validateProperties(properties: Partial<ObsidianProperties>): ValidationResult {
-    const result = ObsidianPropertiesSchema.safeParse(properties);
+    const result = PropertyUpdateSchema.safeParse(properties);
     
     if (result.success) {
       return { valid: true, errors: [] };
@@ -70,7 +71,7 @@ export class PropertyManager {
 
     return {
       valid: false,
-      errors: result.error.errors.map(err => 
+      errors: result.error.errors.map(err =>
         `${err.path.join('.')}: ${err.message}`
       )
     };
@@ -86,7 +87,8 @@ export class PropertyManager {
     const merged = { ...existing };
 
     for (const [key, value] of Object.entries(updates)) {
-      if (value === undefined) continue;
+      // Skip undefined values and timestamp fields
+      if (value === undefined || key === 'created' || key === 'modified') continue;
 
       const currentValue = merged[key as keyof ObsidianProperties];
 
@@ -109,7 +111,7 @@ export class PropertyManager {
       }
     }
 
-    // Always update modified date
+    // Always update modified date (this is the only place we set it)
     merged.modified = new Date().toISOString();
 
     return merged;
