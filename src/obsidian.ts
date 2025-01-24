@@ -49,8 +49,11 @@ export class ObsidianClient {
         'X-XSS-Protection': '1; mode=block',
         'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'
       },
-      validateStatus: (status) => status >= 200 && status < 300,
-      timeout: 30000,
+      validateStatus: (status) => {
+        // Accept all 2xx status codes as success
+        return status >= 200 && status < 300;
+      },
+      timeout: 6000, // 6 seconds
       maxRedirects: 5,
       maxContentLength: 50 * 1024 * 1024, // 50MB max response size
       maxBodyLength: 50 * 1024 * 1024, // 50MB max request body size
@@ -164,7 +167,9 @@ export class ObsidianClient {
 
   async search(query: string, contextLength: number = 100): Promise<SearchResult[]> {
     return this.safeRequest(async () => {
-      const response = await this.client.post("/search/simple/", null, {
+      const requestId = crypto.randomUUID();
+      console.debug(`[${requestId}] Performing simple search: ${query}`);
+      const response = await this.client.post("/search/simple/", undefined, {
         params: {
           query,
           contextLength
@@ -194,7 +199,8 @@ export class ObsidianClient {
           }
         }
       );
-      if (response.status !== 200) {
+      // Accept both 200 OK and 201 Created as success
+      if (response.status !== 200 && response.status !== 201) {
         throw new ObsidianError("Failed to append content", response.status, response.data);
       }
     });
@@ -240,12 +246,15 @@ export class ObsidianClient {
 
   async searchJson(query: Record<string, any>): Promise<any> {
     return this.safeRequest(async () => {
+      const requestId = crypto.randomUUID();
+      console.debug(`[${requestId}] Performing complex search with query:`, JSON.stringify(query));
       const response = await this.client.post(
         "/search/",
         query,
         {
           headers: {
-            "Content-Type": "application/vnd.olrapi.jsonlogic+json"
+            "Content-Type": "application/vnd.olrapi.jsonlogic+json",
+            "Accept": "application/json"
           }
         }
       );

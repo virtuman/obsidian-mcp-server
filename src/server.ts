@@ -16,7 +16,7 @@ import type { ToolHandler } from "./types.js";
 // Rate limiting configuration
 const RATE_LIMITS = {
   windowMs: 15 * 60 * 1000, // 15 minutes
-  maxRequests: 100 // Maximum requests per window
+  maxRequests: 200 // Maximum requests per window
 };
 
 // Request tracking for rate limiting
@@ -172,7 +172,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   // Add timeout handling
-  const timeoutMs = 30000; // 30 second timeout
+  const timeoutMs = 60000; // 60 second timeout
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => {
       reject(new ObsidianError(`Tool execution timed out after ${timeoutMs}ms`, 408));
@@ -199,6 +199,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } catch (error) {
     console.error("Tool execution failed:", error);
     
+    // Log the error for debugging
+    console.error(`Tool execution error details:`, {
+      error,
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+
+    // Check if the operation actually succeeded despite the error
+    if (error instanceof ObsidianError && error.code === 204) {
+      // Return success response since we know the operation worked
+      return {
+        content: [{
+          type: "text",
+          text: "Operation completed successfully"
+        }]
+      };
+    }
+
+    // Handle other errors
     if (error instanceof ObsidianError) {
       throw error;
     } else if (error instanceof Error) {
