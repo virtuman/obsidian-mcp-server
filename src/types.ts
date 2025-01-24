@@ -3,10 +3,19 @@ import { Tool, TextContent, ImageContent, EmbeddedResource } from "@modelcontext
 export interface ObsidianConfig {
   apiKey: string;
   verifySSL?: boolean;
+  timeout?: number;
+  maxContentLength?: number;
+  maxBodyLength?: number;
 }
 
-export const DEFAULT_OBSIDIAN_CONFIG = {
-  protocol: "https", // Use HTTPS with self-signed cert for local development
+export interface ObsidianServerConfig {
+  protocol: "http" | "https";
+  host: string;
+  port: number;
+}
+
+export const DEFAULT_OBSIDIAN_CONFIG: ObsidianServerConfig = {
+  protocol: "https",
   host: "127.0.0.1",
   port: 27124
 } as const;
@@ -37,14 +46,8 @@ export interface ToolHandler<T = Record<string, unknown>> {
   runTool(args: T): Promise<Array<TextContent | ImageContent | EmbeddedResource>>;
 }
 
-export type PatchOperation = "append" | "prepend" | "replace";
-export type TargetType = "heading" | "block" | "frontmatter";
-
 export interface PatchContentArgs {
   filepath: string;
-  operation: PatchOperation;
-  targetType: TargetType;
-  target: string;
   content: string;
 }
 
@@ -58,8 +61,12 @@ export interface SearchArgs {
   contextLength?: number;
 }
 
+export interface JsonLogicQuery {
+  [operator: string]: unknown[];
+}
+
 export interface ComplexSearchArgs {
-  query: Record<string, any>;
+  query: JsonLogicQuery;
 }
 
 export interface FileContentsArgs {
@@ -70,11 +77,21 @@ export interface ListFilesArgs {
   dirpath: string;
 }
 
+export interface RateLimitConfig {
+  windowMs: number;
+  maxRequests: number;
+}
+
+export const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  maxRequests: 200
+} as const;
+
 export class ObsidianError extends Error {
   constructor(
     message: string,
     public readonly code?: number,
-    public readonly details?: any
+    public readonly details?: unknown
   ) {
     super(message);
     this.name = "ObsidianError";
