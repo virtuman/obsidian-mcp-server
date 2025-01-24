@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-1.4.0-green.svg)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/Version-1.2.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/Version-1.2.2-blue.svg)]()
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-blue.svg)]()
 [![GitHub](https://img.shields.io/github/stars/cyanheads/obsidian-mcp-server?style=social)](https://github.com/cyanheads/obsidian-mcp-server)
@@ -16,25 +16,21 @@ Requires the Local REST API plugin in Obsidian.
 ## Features
 
 ### File Operations
-- Path-based file/directory management with atomic updates
-- Content read/write operations with validation
+- Atomic file/directory operations with validation
 - Resource monitoring and cleanup
 
 ### Search System
-- Full-text and JsonLogic-based complex search
-- Configurable context boundaries and token limits
-- Optimized query processing
+- Full-text and JsonLogic search with context control
+- Optimized query processing with token limits
 
 ### Property Management
-- YAML frontmatter parsing and validation
-- Intelligent property merging and updates
-- Automatic timestamp management
+- YAML frontmatter parsing and intelligent merging
+- Automatic timestamps (created by Obsidian, modified by server)
 - Custom field support
 
 ### Security & Performance
-- API key authentication and rate limiting
-- SSL verification options
-- Resource management and health monitoring
+- API key auth with rate limiting and SSL options
+- Resource monitoring and health checks
 
 ## Installation
 
@@ -138,9 +134,8 @@ obsidian_update_properties: {
   filepath: string,  // Path relative to vault root
   properties: {
     title?: string,
-    created?: string,  // ISO date
-    modified?: string, // ISO date (auto-updated)
     author?: string,
+    // Note: created/modified timestamps are managed automatically
     type?: Array<"concept" | "architecture" | "specification" | 
       "protocol" | "api" | "research" | "implementation" | 
       "guide" | "reference">,
@@ -161,28 +156,21 @@ obsidian_update_properties: {
 ## Best Practices
 
 ### File Operations
-- Use atomic operations
-- Validate content before modifications
-- Implement proper error handling
-- Monitor operation performance
+- Use atomic operations with validation
+- Handle errors and monitor performance
 
 ### Search Implementation
-- Optimize query specificity
-- Control context boundaries
-- Handle large result sets
-- Consider token limits
+- Optimize queries and control context size
+- Handle large results within token limits
 
 ### Property Management
-- Validate property values before updates
-- Use appropriate property types
-- Handle array merging appropriately
-- Consider custom field implications
+- Use appropriate types and validate updates
+- Handle arrays and custom fields properly
+- Never set timestamps (managed automatically)
 
 ### Error Prevention
-- Validate inputs thoroughly
-- Handle API errors gracefully
-- Monitor error patterns
-- Check rate limits
+- Validate inputs and handle errors gracefully
+- Monitor patterns and respect rate limits
 
 ## Contributing
 
