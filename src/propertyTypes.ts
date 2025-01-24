@@ -1,17 +1,8 @@
 import { z } from "zod";
 
 // Define validation schemas
-export const PropertyTypeEnum = z.enum([
-  "concept",
-  "architecture",
-  "specification",
-  "protocol",
-  "api",
-  "research",
-  "implementation",
-  "guide",
-  "reference"
-]);
+// Allow any string for type to be more flexible
+export const PropertyType = z.string();
 
 export const StatusEnum = z.enum([
   "draft",
@@ -29,7 +20,7 @@ export const ObsidianPropertiesSchema = z.object({
   author: z.string().optional(),
 
   // Classification
-  type: z.array(PropertyTypeEnum).optional(),
+  type: z.array(PropertyType).optional(),
 
   // Organization
   tags: z.array(z.string().startsWith("#")).optional(),
@@ -57,7 +48,7 @@ export const PropertyUpdateSchema = z.object({
   author: z.string().optional(),
 
   // Classification
-  type: z.array(PropertyTypeEnum).optional(),
+  type: z.array(PropertyType).optional(),
 
   // Organization
   tags: z.array(z.string().startsWith("#")).optional(),
@@ -85,6 +76,7 @@ export interface PropertyOperation {
   operation: 'get' | 'update' | 'patch';
   filepath: string;
   properties?: Partial<ObsidianProperties>;
+  replace?: boolean; // Add replace flag
 }
 
 export interface ValidationResult {

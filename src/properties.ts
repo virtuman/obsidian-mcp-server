@@ -82,7 +82,8 @@ export class PropertyManager {
    */
   mergeProperties(
     existing: ObsidianProperties,
-    updates: Partial<ObsidianProperties>
+    updates: Partial<ObsidianProperties>,
+    replace: boolean = false
   ): ObsidianProperties {
     const merged = { ...existing };
 
@@ -92,11 +93,11 @@ export class PropertyManager {
 
       const currentValue = merged[key as keyof ObsidianProperties];
 
-      // Special handling for arrays - merge rather than replace
+      // Handle arrays based on replace flag
       if (Array.isArray(value) && Array.isArray(currentValue)) {
-        merged[key as keyof ObsidianProperties] = [
-          ...new Set([...currentValue, ...value])
-        ] as any;
+        merged[key as keyof ObsidianProperties] = replace ?
+          value :
+          [...new Set([...currentValue, ...value])] as any;
       }
       // Special handling for custom object - deep merge
       else if (key === 'custom' && typeof value === 'object' && value !== null) {
@@ -144,7 +145,8 @@ export class PropertyManager {
    */
   async updateProperties(
     filepath: string,
-    newProperties: Partial<ObsidianProperties>
+    newProperties: Partial<ObsidianProperties>,
+    replace: boolean = false
   ): Promise<PropertyManagerResult> {
     try {
       // Validate new properties
@@ -162,7 +164,7 @@ export class PropertyManager {
       const existingProperties = this.parseProperties(content);
 
       // Merge properties
-      const mergedProperties = this.mergeProperties(existingProperties, newProperties);
+      const mergedProperties = this.mergeProperties(existingProperties, newProperties, replace);
 
       // Generate new frontmatter
       const newFrontmatter = this.generateProperties(mergedProperties);

@@ -16,6 +16,7 @@ interface GetPropertiesArgs {
 interface UpdatePropertiesArgs {
   filepath: string;
   properties: Partial<ObsidianProperties>;
+  replace?: boolean;
 }
 
 export class GetPropertiesToolHandler extends BaseToolHandler<GetPropertiesArgs> {
@@ -79,7 +80,7 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Update properties in an Obsidian note's YAML frontmatter. Intelligently merges arrays (tags, type, status), handles custom fields, and automatically manages timestamps (created by Obsidian, modified by MCP server). Existing properties not included in the update are preserved.",
+      description: "Update properties in an Obsidian note's YAML frontmatter. Intelligently merges arrays (tags, type, status), handles custom fields, and automatically manages timestamps. Valid property types:\n- type: Any string value\n- status: ['draft', 'in-progress', 'review', 'complete']\n- tags: Array of strings starting with '#'\n- Other fields: title, author, version, platform, repository (URI), dependencies, sources, urls (URI), papers, custom (object)",
       examples: [
         {
           description: "Update basic metadata",
@@ -93,14 +94,14 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
           }
         },
         {
-          description: "Update tags and status",
+          description: "Update tags and status with replace",
           args: {
             filepath: "docs/feature.md",
             properties: {
               tags: ["#feature", "#in-development", "#high-priority"],
-              status: ["in-progress"],
-              version: "2.0.0"
-            }
+              status: ["in-progress"]
+            },
+            replace: true
           }
         },
         {
@@ -131,23 +132,9 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
             properties: {
               title: { type: "string" },
               author: { type: "string" },
-              // Note: created and modified timestamps are managed automatically
               type: {
                 type: "array",
-                items: {
-                  type: "string",
-                  enum: [
-                    "concept",
-                    "architecture",
-                    "specification",
-                    "protocol",
-                    "api",
-                    "research",
-                    "implementation",
-                    "guide",
-                    "reference"
-                  ]
-                }
+                items: { type: "string" }
               },
               tags: {
                 type: "array",
@@ -185,6 +172,10 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
               }
             },
             additionalProperties: false
+          },
+          replace: {
+            type: "boolean",
+            description: "If true, arrays will be replaced instead of merged"
           }
         },
         required: ["filepath", "properties"]
@@ -196,7 +187,8 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
     try {
       const result = await this.propertyManager.updateProperties(
         args.filepath,
-        args.properties
+        args.properties,
+        args.replace
       );
       return this.createResponse(result);
     } catch (error) {

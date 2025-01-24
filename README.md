@@ -20,8 +20,9 @@ Requires the Local REST API plugin in Obsidian.
 - Resource monitoring and cleanup
 
 ### Search System
-- Full-text and JsonLogic search with context control
-- Optimized query processing with token limits
+- Full-text search with configurable context
+- Advanced JsonLogic queries for files, tags, and metadata
+- Support for glob patterns and frontmatter fields
 
 ### Property Management
 - YAML frontmatter parsing and intelligent merging
@@ -75,6 +76,28 @@ Environment configuration:
 - `MAX_TOKENS`: Maximum tokens per response (default: 20000)
 - `TOOL_TIMEOUT_MS`: Tool execution timeout (default: 60000)
 
+Additional configuration options:
+```typescript
+interface ObsidianConfig {
+  apiKey: string;           // Required: API key for authentication
+  verifySSL?: boolean;      // Optional: Enable SSL verification
+  timeout?: number;         // Optional: Request timeout in ms
+  maxContentLength?: number;// Optional: Max response content length
+  maxBodyLength?: number;   // Optional: Max request body length
+}
+
+interface RateLimitConfig {
+  windowMs: number;         // Time window for rate limiting
+  maxRequests: number;      // Max requests per window
+}
+```
+
+Error Handling:
+- All errors include a 5-digit error code
+- HTTP status codes are automatically converted (e.g., 404 -> 40400)
+- Default server error code: 50000
+- Detailed error messages include original error stack traces in development
+
 ## Tools
 
 ### File Management
@@ -103,7 +126,19 @@ obsidian_find_in_file: {
 
 // Advanced search with JsonLogic
 obsidian_complex_search: {
-  query: JsonLogicQuery  // Example: {"glob": ["*.md", {"var": "path"}]}
+  query: JsonLogicQuery
+  // Examples:
+  // Find by tag:
+  // {"in": ["#mytag", {"var": "frontmatter.tags"}]}
+  //
+  // Find markdown files in a directory:
+  // {"glob": ["docs/*.md", {"var": "path"}]}
+  //
+  // Combine conditions:
+  // {"and": [
+  //   {"glob": ["*.md", {"var": "path"}]},
+  //   {"in": ["#mytag", {"var": "frontmatter.tags"}]}
+  // ]}
 }
 ```
 
@@ -122,8 +157,41 @@ obsidian_patch_content: {
 }
 ```
 
+### Command Management
+```typescript
+// List available commands
+obsidian_list_commands: {}
+
+// Execute a command
+obsidian_execute_command: {
+  commandId: string  // Command ID to execute
+}
+```
+
+### File Navigation
+```typescript
+// Open a file in Obsidian
+obsidian_open_file: {
+  filepath: string,   // Path relative to vault root
+  newLeaf?: boolean  // Open in new leaf (default: false)
+}
+
+// Get active file content
+obsidian_get_active_file: {}
+
+// Get periodic note content
+obsidian_get_periodic_note: {
+  period: "daily" | "weekly" | "monthly" | "quarterly" | "yearly"
+}
+```
+
 ### Property Management
 ```typescript
+// Get all tags in vault or directory
+obsidian_get_tags: {
+  path?: string  // Optional: limit to specific directory
+}
+
 // Get note properties
 obsidian_get_properties: {
   filepath: string  // Path relative to vault root
@@ -160,8 +228,10 @@ obsidian_update_properties: {
 - Handle errors and monitor performance
 
 ### Search Implementation
-- Optimize queries and control context size
-- Handle large results within token limits
+- Use appropriate search tool for the task:
+  - obsidian_find_in_file for text search
+  - obsidian_complex_search for metadata/tag filtering
+- Keep context size reasonable (default: 10 chars)
 
 ### Property Management
 - Use appropriate types and validate updates
