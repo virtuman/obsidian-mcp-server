@@ -29,12 +29,18 @@ export class GetPropertiesToolHandler extends BaseToolHandler<GetPropertiesArgs>
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Get properties from an Obsidian note's frontmatter.",
+      description: "Get properties (title, tags, status, etc.) from an Obsidian note's YAML frontmatter. Returns all available properties including custom fields.",
       examples: [
         {
           description: "Get properties from a note",
           args: {
             filepath: "path/to/note.md"
+          }
+        },
+        {
+          description: "Get properties from a documentation file",
+          args: {
+            filepath: "docs/architecture.md"
           }
         }
       ],
@@ -73,16 +79,40 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Update properties in an Obsidian note's frontmatter.",
+      description: "Update properties in an Obsidian note's YAML frontmatter. Intelligently merges arrays (tags, type, status), handles custom fields, and automatically updates the modified timestamp. Existing properties not included in the update are preserved.",
       examples: [
         {
-          description: "Update note properties",
+          description: "Update basic metadata",
           args: {
             filepath: "path/to/note.md",
             properties: {
-              title: "New Title",
-              tags: ["#tag1", "#tag2"],
-              status: ["in-progress"]
+              title: "Architecture Overview",
+              author: "Development Team",
+              type: ["architecture", "specification"]
+            }
+          }
+        },
+        {
+          description: "Update tags and status",
+          args: {
+            filepath: "docs/feature.md",
+            properties: {
+              tags: ["#feature", "#in-development", "#high-priority"],
+              status: ["in-progress"],
+              version: "2.0.0"
+            }
+          }
+        },
+        {
+          description: "Add custom fields",
+          args: {
+            filepath: "projects/project-x.md",
+            properties: {
+              custom: {
+                priority: "high",
+                reviewedBy: ["Alice", "Bob"],
+                dueDate: "2025-03-01"
+              }
             }
           }
         }
