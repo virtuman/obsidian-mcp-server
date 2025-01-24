@@ -7,11 +7,14 @@ import {
   ImageContent,
   EmbeddedResource,
   ListToolsRequestSchema,
-  CallToolRequestSchema
+  CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import { ObsidianClient } from "./obsidian.js";
 import { ObsidianError, DEFAULT_RATE_LIMIT_CONFIG, RateLimitConfig } from "./types.js";
 import type { ToolHandler } from "./types.js";
+import { TagResource } from "./resources.js";
 import {
   ListFilesInVaultToolHandler,
   ListFilesInDirToolHandler,
@@ -19,7 +22,8 @@ import {
   FindInFileToolHandler,
   AppendContentToolHandler,
   PatchContentToolHandler,
-  ComplexSearchToolHandler
+  ComplexSearchToolHandler,
+  GetTagsToolHandler
 } from "./tools.js";
 import {
   GetPropertiesToolHandler,
@@ -75,7 +79,7 @@ const cleanupInterval = setInterval(() => {
 }, 60000); // Clean up every minute
 
 // Initialize Obsidian client
-const client = new ObsidianClient({ 
+const client = new ObsidianClient({
   apiKey: API_KEY,
   verifySSL: process.env.NODE_ENV === 'production' // Enable SSL verification in production
 });
@@ -83,7 +87,6 @@ const client = new ObsidianClient({
 // Initialize tool handlers
 type AnyToolHandler = ToolHandler<any>;
 const toolHandlers = new Map<string, AnyToolHandler>();
-
 const handlers: AnyToolHandler[] = [
   new ListFilesInVaultToolHandler(client),
   new ListFilesInDirToolHandler(client),
@@ -93,10 +96,14 @@ const handlers: AnyToolHandler[] = [
   new PatchContentToolHandler(client),
   new ComplexSearchToolHandler(client),
   new GetPropertiesToolHandler(client),
-  new UpdatePropertiesToolHandler(client)
+  new UpdatePropertiesToolHandler(client),
+  new GetTagsToolHandler(client)
 ];
 
 handlers.forEach(handler => toolHandlers.set(handler.name, handler));
+
+// Initialize resources
+const tagResource = new TagResource(client);
 
 // Create MCP server
 const server = new Server(
@@ -107,12 +114,30 @@ const server = new Server(
   {
     capabilities: {
       tools: {},
-      resources: {}
+      resources: {
+        [tagResource.getResourceDescription().uri]: tagResource
+      }
     }
   }
 );
 
-// Set up request handlers
+// Set up resource handlers
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  return {
+    resources: [tagResource.getResourceDescription()]
+  };
+});
+
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  if (request.params.uri === tagResource.getResourceDescription().uri) {
+    return {
+      contents: await tagResource.getContent()
+    };
+  }
+  throw new ObsidianError(`Resource not found: ${request.params.uri}`, 40400); // 40400 = Not found
+});
+
+// Set up tool handlers
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const tools: Tool[] = [];
   for (const handler of toolHandlers.values()) {
@@ -188,14 +213,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   const handler = toolHandlers.get(name);
   if (!handler) {
-    throw new ObsidianError(`Unknown tool: ${name}`, 404);
+    throw new ObsidianError(`Unknown tool: ${name}`, 40400); // 40400 = Not found
   }
 
   // Check rate limit
   if (!checkRateLimit(name)) {
     throw new ObsidianError(
       `Rate limit exceeded for tool: ${name}. Please try again later.`,
-      429
+      42900 // 42900 = Rate limit exceeded
     );
   }
 
@@ -203,7 +228,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const timeoutMs = parseInt(process.env.TOOL_TIMEOUT_MS ?? '60000'); // 60 second default timeout
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => {
-      reject(new ObsidianError(`Tool execution timed out after ${timeoutMs}ms`, 408));
+      reject(new ObsidianError(`Tool execution timed out after ${timeoutMs}ms`, 40800)); // 40800 = Request timeout
     }, timeoutMs);
   });
 
@@ -214,7 +239,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (!validationResult.valid) {
       throw new ObsidianError(
         `Invalid tool arguments: ${validationResult.errors.join(', ')}`,
-        400
+        40000 // 40000 = Bad request
       );
     }
 
@@ -227,7 +252,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } catch (error) {
     if (error instanceof ObsidianError) {
       // Check if the operation actually succeeded despite the error
-      if (error.code === 204) {
+      if (error.errorCode === 20400) { // 20400 = Success with no content
         return {
           content: [{
             type: "text",
@@ -250,14 +275,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (error instanceof Error) {
       throw new ObsidianError(
         `Tool '${name}' execution failed: ${error.message}`,
-        500,
+        50000, // 50000 = Internal server error
         { originalError: error.stack }
       );
     }
     
     throw new ObsidianError(
       "Tool execution failed with unknown error",
-      500,
+      50000, // 50000 = Internal server error
       { error }
     );
   }

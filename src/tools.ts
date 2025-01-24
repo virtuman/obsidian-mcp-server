@@ -9,8 +9,17 @@ import {
   ComplexSearchArgs,
   FileContentsArgs,
   ListFilesArgs,
-  ObsidianError
+  GetTagsArgs,
+  TagResponse,
+  ObsidianError,
+  JsonLogicQuery,
+  SearchResult,
+  SimpleSearchResult,
+  SearchMatch,
+  ObsidianFile,
+  PeriodType
 } from "./types.js";
+import { PropertyManager } from "./properties.js";
 
 const TOOL_NAMES = {
   LIST_FILES_IN_VAULT: "obsidian_list_files_in_vault",
@@ -19,7 +28,8 @@ const TOOL_NAMES = {
   FIND_IN_FILE: "obsidian_find_in_file",
   APPEND_CONTENT: "obsidian_append_content",
   PATCH_CONTENT: "obsidian_patch_content",
-  COMPLEX_SEARCH: "obsidian_complex_search"
+  COMPLEX_SEARCH: "obsidian_complex_search",
+  GET_TAGS: "obsidian_get_tags"
 } as const;
 
 // Load token limits from environment or use defaults
@@ -302,7 +312,7 @@ export class FindInFileToolHandler extends BaseToolHandler<SearchArgs> {
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Full-text search across all files in the vault. Returns matching files with surrounding context for each match. Useful for finding specific content, references, or patterns across notes.",
+      description: "Full-text search across all files in the vault. Returns matching files with surrounding context for each match. For results with more than 5 matching files, returns only file names and match counts to prevent overwhelming responses. Useful for finding specific content, references, or patterns across notes.",
       examples: [
         {
           description: "Search for a specific term",
@@ -316,17 +326,39 @@ export class FindInFileToolHandler extends BaseToolHandler<SearchArgs> {
           args: {
             query: "#todo"
           },
-          response: [
-            {
-              "filename": "Projects/AI.md",
-              "matches": [
-                {
-                  "context": "Research needed:\n#todo Implement transformer architecture\nDeadline: Next week",
-                  "match": { "start": 15, "end": 45 }
-                }
-              ]
-            }
-          ]
+          response: {
+            "message": "Found 1 file with matches:",
+            "results": [
+              {
+                "filename": "Projects/AI.md",
+                "matches": [
+                  {
+                    "context": "Research needed:\n#todo Implement transformer architecture\nDeadline: Next week",
+                    "match": { "start": 15, "end": 45 }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          description: "Example response with many matches (file-only format)",
+          args: {
+            query: "API"
+          },
+          response: {
+            "message": "Found 92 files with matches. Showing file names only:",
+            "results": [
+              {
+                "filename": "Developer/Documentation/API.md",
+                "matchCount": 43
+              },
+              {
+                "filename": "Projects/API_Design.md",
+                "matchCount": 34
+              }
+            ]
+          }
         }
       ],
       inputSchema: {
@@ -349,10 +381,36 @@ export class FindInFileToolHandler extends BaseToolHandler<SearchArgs> {
 
   async runTool(args: SearchArgs): Promise<Array<TextContent>> {
     try {
-      const results = await this.client.search(args.query, args.contextLength);
-      // Extract only unique filenames from search results
-      const filenames = [...new Set(results.map(result => result.filename))].sort();
-      return this.createResponse(filenames);
+      const results = await this.client.search(args.query, args.contextLength ?? 100) as SimpleSearchResult[];
+      
+      // If more than 5 results, only return filenames
+      if (results.length > 5) {
+        const fileOnlyResults = results.map(result => ({
+          filename: result.filename,
+          matchCount: result.matches.length
+        }));
+        return this.createResponse({
+          message: `Found ${results.length} files with matches. Showing file names only:`,
+          results: fileOnlyResults
+        });
+      }
+
+      // Otherwise return full context as before
+      const formattedResults = results.map(result => ({
+        filename: result.filename,
+        matches: result.matches.map(match => ({
+          context: match.context,
+          match: {
+            text: match.context.substring(match.match.start, match.match.end),
+            position: {
+              start: match.match.start,
+              end: match.match.end
+            }
+          }
+        })),
+        score: result.score
+      }));
+      return this.createResponse(formattedResults);
     } catch (error) {
       return this.handleError(error);
     }
@@ -466,46 +524,21 @@ export class ComplexSearchToolHandler extends BaseToolHandler<ComplexSearchArgs>
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Advanced search functionality using JsonLogic queries. Enables complex file filtering based on paths, metadata, modification times, and content patterns. Supports logical operations, date comparisons, and pattern matching.",
+      description: "File path pattern matching using JsonLogic queries. Supported operations:\n- glob: Pattern matching for paths (e.g., \"*.md\")\n- Variable access: {\"var\": \"path\"}\n\nNote: For full-text content search, date-based searches, or other advanced queries, use obsidian_find_in_file instead.",
       examples: [
         {
-          description: "Find markdown files in a specific folder",
+          description: "Find markdown files in Projects folder",
           args: {
             query: {
-              "and": [
-                {"glob": ["Projects/*.md", {"var": "path"}]},
-                {"contains": [{"var": "content"}, "#active"]}
-              ]
+              "glob": ["Projects/*.md", {"var": "path"}]
             }
           }
         },
         {
-          description: "Find recently modified documentation",
+          description: "Find files in a specific subfolder",
           args: {
             query: {
-              "and": [
-                {"glob": ["docs/*.md", {"var": "path"}]},
-                {">=": [
-                  {"var": "mtime"},
-                  {"date": "-7 days"}
-                ]},
-                {"!=": [{"var": "size"}, 0]}
-              ]
-            }
-          }
-        },
-        {
-          description: "Find files by multiple criteria",
-          args: {
-            query: {
-              "and": [
-                {"or": [
-                  {"glob": ["*.md", {"var": "path"}]},
-                  {"glob": ["*.txt", {"var": "path"}]}
-                ]},
-                {"contains": [{"var": "content"}, "TODO"]},
-                {"<": [{"var": "size"}, 10000]}
-              ]
+              "glob": ["**/Test/*.md", {"var": "path"}]
             }
           }
         }
@@ -525,10 +558,388 @@ export class ComplexSearchToolHandler extends BaseToolHandler<ComplexSearchArgs>
 
   async runTool(args: ComplexSearchArgs): Promise<Array<TextContent>> {
     try {
+      // Perform search
       const results = await this.client.searchJson(args.query);
-      return this.createResponse(results);
+      console.debug('Search results:', results);
+
+      // Format response based on result type
+      const formattedResults = results.map(result => {
+        if ('matches' in result) {
+          // SimpleSearchResult
+          return {
+            filename: result.filename,
+            matches: result.matches,
+            score: result.score
+          };
+        } else {
+          // SearchResult
+          return {
+            filename: result.filename,
+            result: result.result
+          };
+        }
+      });
+
+      return this.createResponse(formattedResults);
+    } catch (error) {
+      console.error('Complex search error:', error);
+      return this.handleError(error);
+    }
+  }
+}
+
+export class GetTagsToolHandler extends BaseToolHandler<GetTagsArgs> {
+  private static readonly TAG_PATTERN = /#[a-zA-Z0-9_-]+/g;
+  private propertyManager: PropertyManager;
+
+  constructor(client: ObsidianClient) {
+    super(TOOL_NAMES.GET_TAGS, client);
+    this.propertyManager = new PropertyManager(client);
+  }
+
+  getToolDescription(): Tool {
+    return {
+      name: this.name,
+      description: "Get all tags used across the Obsidian vault with their usage counts. Optionally filter tags within a specific folder.",
+      examples: [
+        {
+          description: "Get all tags in vault",
+          args: {}
+        },
+        {
+          description: "Get tags in Projects folder",
+          args: {
+            path: "Projects"
+          }
+        },
+        {
+          description: "Example response",
+          args: {},
+          response: {
+            "tags": [
+              {
+                "name": "#project",
+                "count": 15,
+                "files": [
+                  "Projects/ProjectA.md",
+                  "Projects/ProjectB.md"
+                ]
+              }
+            ],
+            "metadata": {
+              "totalOccurrences": 45,
+              "uniqueTags": 12,
+              "scannedFiles": 30
+            }
+          }
+        }
+      ],
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Optional path to limit tag search to specific folder",
+            format: "path"
+          }
+        }
+      }
+    };
+  }
+
+  private async processFiles(files: ObsidianFile[], basePath: string, tagMap: Map<string, Set<string>>): Promise<number> {
+    let scannedFiles = 0;
+
+    for (const file of files) {
+      const fullPath = basePath ? `${basePath}/${file.path}` : file.path;
+
+      if (file.type === "folder" && file.children) {
+        // Recursively process subdirectories
+        scannedFiles += await this.processFiles(file.children, fullPath, tagMap);
+      } else if (file.type === "file" && file.path.endsWith('.md')) {
+        // Process markdown files
+        scannedFiles++;
+        const content = await this.client.getFileContents(fullPath);
+        
+        // Extract tags from frontmatter
+        const properties = this.propertyManager.parseProperties(content);
+        if (properties.tags) {
+          properties.tags.forEach((tag: string) => {
+            if (!tagMap.has(tag)) {
+              tagMap.set(tag, new Set());
+            }
+            tagMap.get(tag)!.add(fullPath);
+          });
+        }
+        
+        // Extract inline tags using regex
+        const inlineTags = content.match(GetTagsToolHandler.TAG_PATTERN) || [];
+        inlineTags.forEach(tag => {
+          if (!tagMap.has(tag)) {
+            tagMap.set(tag, new Set());
+          }
+          tagMap.get(tag)!.add(fullPath);
+        });
+      }
+    }
+    
+    return scannedFiles;
+  }
+
+  async runTool(args: GetTagsArgs): Promise<Array<TextContent>> {
+    try {
+      const tagMap = new Map<string, Set<string>>();
+      const basePath = args.path || '';
+      
+      // Get files from vault or specific directory
+      const files = args.path
+        ? await this.client.listFilesInDir(args.path)
+        : await this.client.listFilesInVault();
+      
+      // Process files recursively
+      const scannedFiles = await this.processFiles(files, basePath, tagMap);
+      
+      // Calculate total occurrences
+      const totalOccurrences = Array.from(tagMap.values())
+        .reduce((sum, files) => sum + files.size, 0);
+
+      const response: TagResponse = {
+        tags: Array.from(tagMap.entries())
+          .map(([name, files]) => ({
+            name,
+            count: files.size,
+            files: Array.from(files).sort()
+          }))
+          .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+        metadata: {
+          totalOccurrences,
+          uniqueTags: tagMap.size,
+          scannedFiles
+        }
+      };
+
+      return this.createResponse(response);
     } catch (error) {
       return this.handleError(error);
     }
   }
 }
+
+// Export all handlers
+export class ListCommandsToolHandler extends BaseToolHandler<Record<string, never>> {
+  constructor(client: ObsidianClient) {
+    super("obsidian_list_commands", client);
+  }
+
+  getToolDescription(): Tool {
+    return {
+      name: this.name,
+      description: "Get a list of available commands that can be executed in Obsidian.",
+      examples: [
+        {
+          description: "List all available commands",
+          args: {}
+        }
+      ],
+      inputSchema: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    };
+  }
+
+  async runTool(): Promise<Array<TextContent>> {
+    try {
+      const commands = await this.client.listCommands();
+      return this.createResponse(commands);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+}
+
+export class ExecuteCommandToolHandler extends BaseToolHandler<{commandId: string}> {
+  constructor(client: ObsidianClient) {
+    super("obsidian_execute_command", client);
+  }
+
+  getToolDescription(): Tool {
+    return {
+      name: this.name,
+      description: "Execute a specific command in Obsidian by its ID.",
+      examples: [
+        {
+          description: "Execute the graph view command",
+          args: {
+            commandId: "graph:open"
+          }
+        }
+      ],
+      inputSchema: {
+        type: "object",
+        properties: {
+          commandId: {
+            type: "string",
+            description: "The ID of the command to execute"
+          }
+        },
+        required: ["commandId"]
+      }
+    };
+  }
+
+  async runTool(args: {commandId: string}): Promise<Array<TextContent>> {
+    try {
+      await this.client.executeCommand(args.commandId);
+      return this.createResponse({ message: `Successfully executed command: ${args.commandId}` });
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+}
+
+export class OpenFileToolHandler extends BaseToolHandler<{filepath: string; newLeaf?: boolean}> {
+  constructor(client: ObsidianClient) {
+    super("obsidian_open_file", client);
+  }
+
+  getToolDescription(): Tool {
+    return {
+      name: this.name,
+      description: "Open a specific file in Obsidian, optionally in a new leaf.",
+      examples: [
+        {
+          description: "Open a file in the current leaf",
+          args: {
+            filepath: "Projects/research.md"
+          }
+        },
+        {
+          description: "Open a file in a new leaf",
+          args: {
+            filepath: "Projects/research.md",
+            newLeaf: true
+          }
+        }
+      ],
+      inputSchema: {
+        type: "object",
+        properties: {
+          filepath: {
+            type: "string",
+            description: "Path to the file to open (relative to vault root)",
+            format: "path"
+          },
+          newLeaf: {
+            type: "boolean",
+            description: "Whether to open the file in a new leaf",
+            default: false
+          }
+        },
+        required: ["filepath"]
+      }
+    };
+  }
+
+  async runTool(args: {filepath: string; newLeaf?: boolean}): Promise<Array<TextContent>> {
+    try {
+      await this.client.openFile(args.filepath, args.newLeaf);
+      return this.createResponse({
+        message: `Successfully opened ${args.filepath}${args.newLeaf ? ' in new leaf' : ''}`
+      });
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+}
+
+export class GetActiveFileToolHandler extends BaseToolHandler<Record<string, never>> {
+  constructor(client: ObsidianClient) {
+    super("obsidian_get_active_file", client);
+  }
+
+  getToolDescription(): Tool {
+    return {
+      name: this.name,
+      description: "Get the content and metadata of the currently active file in Obsidian.",
+      examples: [
+        {
+          description: "Get active file content",
+          args: {}
+        }
+      ],
+      inputSchema: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    };
+  }
+
+  async runTool(): Promise<Array<TextContent>> {
+    try {
+      const activeFile = await this.client.getActiveFile();
+      return this.createResponse(activeFile);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+}
+
+export class GetPeriodicNoteToolHandler extends BaseToolHandler<{period: PeriodType["type"]}> {
+  constructor(client: ObsidianClient) {
+    super("obsidian_get_periodic_note", client);
+  }
+
+  getToolDescription(): Tool {
+    return {
+      name: this.name,
+      description: "Get the content and metadata of a periodic note (daily, weekly, monthly, quarterly, or yearly).",
+      examples: [
+        {
+          description: "Get today's daily note",
+          args: {
+            period: "daily"
+          }
+        }
+      ],
+      inputSchema: {
+        type: "object",
+        properties: {
+          period: {
+            type: "string",
+            enum: ["daily", "weekly", "monthly", "quarterly", "yearly"],
+            description: "The type of periodic note to retrieve"
+          }
+        },
+        required: ["period"]
+      }
+    };
+  }
+
+  async runTool(args: {period: PeriodType["type"]}): Promise<Array<TextContent>> {
+    try {
+      const note = await this.client.getPeriodicNote(args.period);
+      return this.createResponse(note);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+}
+
+export const handlers = [
+  ListFilesInVaultToolHandler,
+  ListFilesInDirToolHandler,
+  GetFileContentsToolHandler,
+  FindInFileToolHandler,
+  AppendContentToolHandler,
+  PatchContentToolHandler,
+  ComplexSearchToolHandler,
+  GetTagsToolHandler,
+  ListCommandsToolHandler,
+  ExecuteCommandToolHandler,
+  OpenFileToolHandler,
+  GetActiveFileToolHandler,
+  GetPeriodicNoteToolHandler
+];
