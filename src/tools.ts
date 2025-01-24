@@ -16,28 +16,38 @@ const TOOL_NAMES = {
   LIST_FILES_IN_VAULT: "obsidian_list_files_in_vault",
   LIST_FILES_IN_DIR: "obsidian_list_files_in_dir",
   GET_FILE_CONTENTS: "obsidian_get_file_contents",
-  SIMPLE_SEARCH: "obsidian_simple_search",
+  FIND_IN_FILE: "obsidian_find_in_file",
   APPEND_CONTENT: "obsidian_append_content",
   PATCH_CONTENT: "obsidian_patch_content",
   COMPLEX_SEARCH: "obsidian_complex_search"
 } as const;
 
-const MAX_TOKENS = 50000;
+// Load token limits from environment or use defaults
+const MAX_TOKENS = parseInt(process.env.MAX_TOKENS ?? '20000');
 const TRUNCATION_MESSAGE = "\n\n[Response truncated due to length]";
 
 export abstract class BaseToolHandler<T = Record<string, unknown>> implements ToolHandler<T> {
   private tokenizer = encoding_for_model("gpt-4"); // This is strictly for token counting, not for LLM inference
+  private isShuttingDown = false;
 
   constructor(
     public readonly name: string,
     protected client: ObsidianClient
   ) {
     // Clean up tokenizer when process exits
-    process.on('exit', () => {
-      if (this.tokenizer) {
-        this.tokenizer.free();
+    const cleanup = () => {
+      if (!this.isShuttingDown) {
+        this.isShuttingDown = true;
+        if (this.tokenizer) {
+          this.tokenizer.free();
+        }
       }
-    });
+    };
+
+    process.on('exit', cleanup);
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
+    process.on('uncaughtException', cleanup);
   }
 
   protected countTokens(text: string): number {
@@ -148,7 +158,7 @@ export class ListFilesInVaultToolHandler extends BaseToolHandler<Record<string, 
       const files = await this.client.listFilesInVault();
       return this.createResponse(files);
     } catch (error) {
-      this.handleError(error);
+      return this.handleError(error);
     }
   }
 }
@@ -175,7 +185,8 @@ export class ListFilesInDirToolHandler extends BaseToolHandler<ListFilesArgs> {
         properties: {
           dirpath: {
             type: "string",
-            description: "Path to list files from (relative to your vault root). Note that empty directories will not be returned."
+            description: "Path to list files from (relative to your vault root). Note that empty directories will not be returned.",
+            format: "path"
           }
         },
         required: ["dirpath"]
@@ -188,7 +199,7 @@ export class ListFilesInDirToolHandler extends BaseToolHandler<ListFilesArgs> {
       const files = await this.client.listFilesInDir(args.dirpath);
       return this.createResponse(files);
     } catch (error) {
-      this.handleError(error);
+      return this.handleError(error);
     }
   }
 }
@@ -221,20 +232,20 @@ export class GetFileContentsToolHandler extends BaseToolHandler<FileContentsArgs
       const content = await this.client.getFileContents(args.filepath);
       return this.createResponse(content);
     } catch (error) {
-      this.handleError(error);
+      return this.handleError(error);
     }
   }
 }
 
-export class SearchToolHandler extends BaseToolHandler<SearchArgs> {
+export class FindInFileToolHandler extends BaseToolHandler<SearchArgs> {
   constructor(client: ObsidianClient) {
-    super(TOOL_NAMES.SIMPLE_SEARCH, client);
+    super(TOOL_NAMES.FIND_IN_FILE, client);
   }
 
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Simple search for documents matching a specified text query across all files in the vault.",
+      description: "Simple search that returns filenames of documents matching a specified text query across all files in the vault.",
       inputSchema: {
         type: "object",
         properties: {
@@ -244,8 +255,8 @@ export class SearchToolHandler extends BaseToolHandler<SearchArgs> {
           },
           contextLength: {
             type: "integer",
-            description: "How much context to return around the matching string (default: 100)",
-            default: 100
+            description: "How much context to use for matching (default: 10)",
+            default: 10
           }
         },
         required: ["query"]
@@ -256,9 +267,11 @@ export class SearchToolHandler extends BaseToolHandler<SearchArgs> {
   async runTool(args: SearchArgs): Promise<Array<TextContent>> {
     try {
       const results = await this.client.search(args.query, args.contextLength);
-      return this.createResponse(results);
+      // Extract only unique filenames from search results
+      const filenames = [...new Set(results.map(result => result.filename))].sort();
+      return this.createResponse(filenames);
     } catch (error) {
-      this.handleError(error);
+      return this.handleError(error);
     }
   }
 }
@@ -311,7 +324,7 @@ export class AppendContentToolHandler extends BaseToolHandler<AppendContentArgs>
       await this.client.appendContent(args.filepath, args.content);
       return this.createResponse({ message: `Successfully appended content to ${args.filepath}` });
     } catch (error) {
-      this.handleError(error);
+      return this.handleError(error);
     }
   }
 }
@@ -324,26 +337,13 @@ export class PatchContentToolHandler extends BaseToolHandler<PatchContentArgs> {
   getToolDescription(): Tool {
     return {
       name: this.name,
-      description: "Insert content into an existing note relative to a heading, block reference, or frontmatter field.",
+      description: "Update the entire content of an existing note or create a new one.",
       examples: [
         {
-          description: "Add content under a heading",
+          description: "Update a note's content",
           args: {
             filepath: "project.md",
-            operation: "append",
-            targetType: "heading",
-            target: "## Tasks",
-            content: "- [ ] New task added via patch"
-          }
-        },
-        {
-          description: "Update frontmatter",
-          args: {
-            filepath: "note.md",
-            operation: "replace",
-            targetType: "frontmatter",
-            target: "status",
-            content: "completed"
+            content: "# Project Notes\n\nThis will replace the entire content of the note."
           }
         }
       ],
@@ -355,42 +355,22 @@ export class PatchContentToolHandler extends BaseToolHandler<PatchContentArgs> {
             description: "Path to the file (relative to vault root)",
             format: "path"
           },
-          operation: {
-            type: "string",
-            description: "Operation to perform (append, prepend, or replace)",
-            enum: ["append", "prepend", "replace"]
-          },
-          targetType: {
-            type: "string",
-            description: "Type of target to patch",
-            enum: ["heading", "block", "frontmatter"]
-          },
-          target: {
-            type: "string",
-            description: "Target identifier (heading path, block reference, or frontmatter field)"
-          },
           content: {
             type: "string",
-            description: "Content to insert"
+            description: "New content for the note (replaces existing content)"
           }
         },
-        required: ["filepath", "operation", "targetType", "target", "content"]
+        required: ["filepath", "content"]
       }
     };
   }
 
   async runTool(args: PatchContentArgs): Promise<Array<TextContent>> {
     try {
-      await this.client.patchContent(
-        args.filepath,
-        args.operation,
-        args.targetType,
-        args.target,
-        args.content
-      );
-      return this.createResponse({ message: `Successfully patched content in ${args.filepath}` });
+      await this.client.updateContent(args.filepath, args.content);
+      return this.createResponse({ message: `Successfully updated content in ${args.filepath}` });
     } catch (error) {
-      this.handleError(error);
+      return this.handleError(error);
     }
   }
 }
@@ -443,7 +423,7 @@ export class ComplexSearchToolHandler extends BaseToolHandler<ComplexSearchArgs>
       const results = await this.client.searchJson(args.query);
       return this.createResponse(results);
     } catch (error) {
-      this.handleError(error);
+      return this.handleError(error);
     }
   }
 }
