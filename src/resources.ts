@@ -1,11 +1,20 @@
 import { Resource, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { ObsidianClient } from "./obsidian.js";
-import { TagResponse, SearchMatch, SimpleSearchResult, SearchResponse } from "./types.js";
+import { TagResponse, ObsidianFile, JsonLogicQuery } from "./types.js";
+import { PropertyManager } from "./properties.js";
 
 export class TagResource {
   private static readonly TAG_PATTERN = /#[a-zA-Z0-9_-]+/g;
+  private tagCache: Map<string, Set<string>> = new Map();
+  private propertyManager: PropertyManager;
+  private isInitialized = false;
+  private lastUpdate = 0;
+  private updateInterval = 5000; // 5 seconds
 
-  constructor(private client: ObsidianClient) {}
+  constructor(private client: ObsidianClient) {
+    this.propertyManager = new PropertyManager(client);
+    this.initializeCache();
+  }
 
   getResourceDescription(): Resource {
     return {
@@ -16,41 +25,73 @@ export class TagResource {
     };
   }
 
+  private async initializeCache() {
+    try {
+      // Get all markdown files
+      const query: JsonLogicQuery = {
+        "glob": ["**/*.md", { "var": "path" }]
+      };
+      
+      const results = await this.client.searchJson(query);
+      this.tagCache.clear();
+
+      // Process each file
+      for (const result of results) {
+        if (!('filename' in result)) continue;
+        
+        try {
+          const content = await this.client.getFileContents(result.filename);
+          
+          // Extract tags from frontmatter
+          const properties = this.propertyManager.parseProperties(content);
+          if (properties.tags) {
+            properties.tags.forEach((tag: string) => {
+              this.addTag(tag, result.filename);
+            });
+          }
+          
+          // Extract inline tags
+          const inlineTags = content.match(TagResource.TAG_PATTERN) || [];
+          inlineTags.forEach(tag => {
+            this.addTag(tag, result.filename);
+          });
+        } catch (error) {
+          console.error(`Failed to process file ${result.filename}:`, error);
+        }
+      }
+
+      this.isInitialized = true;
+      this.lastUpdate = Date.now();
+    } catch (error) {
+      console.error("Failed to initialize tag cache:", error);
+      throw error;
+    }
+  }
+
+  private addTag(tag: string, filepath: string) {
+    if (!this.tagCache.has(tag)) {
+      this.tagCache.set(tag, new Set());
+    }
+    this.tagCache.get(tag)!.add(filepath);
+  }
+
+  private async updateCacheIfNeeded() {
+    const now = Date.now();
+    if (now - this.lastUpdate > this.updateInterval) {
+      await this.initializeCache();
+    }
+  }
+
   async getContent(): Promise<TextContent[]> {
     try {
-      // Search for files containing #
-      const query = {
-        "contains": [{ "var": "content" }, "#"]
-      };
+      if (!this.isInitialized) {
+        await this.initializeCache();
+      } else {
+        await this.updateCacheIfNeeded();
+      }
 
-      const results = await this.client.searchJson(query);
-
-      // Process results to extract tags
-      const tagMap = new Map<string, Set<string>>();
-      let totalOccurrences = 0;
-      let scannedFiles = 0;
-
-      results.forEach((result: SearchResponse) => {
-        scannedFiles++;
-        if ('matches' in result) {
-          result.matches.forEach((match: SearchMatch) => {
-            const tags = match.context.match(TagResource.TAG_PATTERN);
-            if (tags) {
-              tags.forEach((tag: string) => {
-                if (!tagMap.has(tag)) {
-                  tagMap.set(tag, new Set());
-                }
-                tagMap.get(tag)!.add(result.filename);
-                totalOccurrences++;
-              });
-            }
-          });
-        }
-      });
-
-      // Convert to sorted response format
       const response: TagResponse = {
-        tags: Array.from(tagMap.entries())
+        tags: Array.from(this.tagCache.entries())
           .map(([name, files]) => ({
             name,
             count: files.size,
@@ -58,18 +99,24 @@ export class TagResource {
           }))
           .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
         metadata: {
-          totalOccurrences,
-          uniqueTags: tagMap.size,
-          scannedFiles
+          totalOccurrences: Array.from(this.tagCache.values())
+            .reduce((sum, files) => sum + files.size, 0),
+          uniqueTags: this.tagCache.size,
+          scannedFiles: new Set(
+            Array.from(this.tagCache.values())
+              .flatMap(files => Array.from(files))
+          ).size,
+          lastUpdate: this.lastUpdate
         }
       };
 
       return [{
         type: "text",
-        text: JSON.stringify(response, null, 2)
+        text: JSON.stringify(response, null, 2),
+        uri: this.getResourceDescription().uri
       }];
     } catch (error) {
-      console.error("Failed to fetch tags:", error);
+      console.error("Failed to get tags:", error);
       throw error;
     }
   }

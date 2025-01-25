@@ -129,6 +129,7 @@ export interface TagMetadata {
   totalOccurrences: number;
   uniqueTags: number;
   scannedFiles: number;
+  lastUpdate: number;  // Timestamp of last cache update
 }
 
 export interface TagResponse {

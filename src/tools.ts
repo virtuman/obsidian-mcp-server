@@ -714,7 +714,8 @@ export class GetTagsToolHandler extends BaseToolHandler<GetTagsArgs> {
         metadata: {
           totalOccurrences,
           uniqueTags: tagMap.size,
-          scannedFiles
+          scannedFiles,
+          lastUpdate: Date.now()
         }
       };
 
