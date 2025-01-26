@@ -591,7 +591,6 @@ export class ComplexSearchToolHandler extends BaseToolHandler<ComplexSearchArgs>
 }
 
 export class GetTagsToolHandler extends BaseToolHandler<GetTagsArgs> {
-  private static readonly TAG_PATTERN = /#[a-zA-Z0-9_-]+/g;
   private propertyManager: PropertyManager;
 
   constructor(client: ObsidianClient) {
@@ -620,7 +619,7 @@ export class GetTagsToolHandler extends BaseToolHandler<GetTagsArgs> {
           response: {
             "tags": [
               {
-                "name": "#project",
+                "name": "project",
                 "count": 15,
                 "files": [
                   "Projects/ProjectA.md",
@@ -663,7 +662,7 @@ export class GetTagsToolHandler extends BaseToolHandler<GetTagsArgs> {
         scannedFiles++;
         const content = await this.client.getFileContents(fullPath);
         
-        // Extract tags from frontmatter
+        // Only extract tags from frontmatter
         const properties = this.propertyManager.parseProperties(content);
         if (properties.tags) {
           properties.tags.forEach((tag: string) => {
@@ -673,15 +672,6 @@ export class GetTagsToolHandler extends BaseToolHandler<GetTagsArgs> {
             tagMap.get(tag)!.add(fullPath);
           });
         }
-        
-        // Extract inline tags using regex
-        const inlineTags = content.match(GetTagsToolHandler.TAG_PATTERN) || [];
-        inlineTags.forEach(tag => {
-          if (!tagMap.has(tag)) {
-            tagMap.set(tag, new Set());
-          }
-          tagMap.get(tag)!.add(fullPath);
-        });
       }
     }
     
