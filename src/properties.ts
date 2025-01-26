@@ -26,10 +26,10 @@ export class PropertyManager {
       const frontmatter = match[2];
       const properties = parse(frontmatter);
       
-      // Ensure tags have # prefix
+      // Handle tags - don't add # prefix in frontmatter
       if (properties.tags && Array.isArray(properties.tags)) {
         properties.tags = properties.tags.map((tag: string) =>
-          tag.startsWith('#') ? tag : `#${tag}`
+          tag.startsWith('#') ? tag.substring(1) : tag
         );
       }
 
