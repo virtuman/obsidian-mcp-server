@@ -171,11 +171,19 @@ export class ObsidianClient {
         // Handle common connection errors with helpful messages
         if (error.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' || error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
           throw new ObsidianError(
-            `SSL certificate verification failed. To fix this:\n` +
+            `SSL certificate verification failed. You have two options:\n\n` +
+            `Option 1 - Enable HTTP (not recommended for production):\n` +
+            `1. Go to Obsidian Settings > Local REST API\n` +
+            `2. Enable "Enable Non-encrypted (HTTP) Server"\n` +
+            `3. Update your client config to use "http" protocol\n\n` +
+            `Option 2 - Configure HTTPS (recommended):\n` +
             `1. Go to Obsidian Settings > Local REST API\n` +
             `2. Under 'How to Access', copy the certificate\n` +
-            `3. Configure the certificate as a trusted certificate authority\n` +
-            `4. Ensure you're using HTTPS (HTTP is disabled by default)\n` +
+            `3. Add the certificate to your system's trusted certificates:\n` +
+            `   - On macOS: Add to Keychain Access\n` +
+            `   - On Windows: Add to Certificate Manager\n` +
+            `   - On Linux: Add to ca-certificates\n` +
+            `   For development only: Set verifySSL: false in client config\n\n` +
             `Original error: ${error.message}`,
             50001, // SSL error code
             { code: error.code, config: { verifySSL: this.config.verifySSL } }
