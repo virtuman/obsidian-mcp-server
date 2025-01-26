@@ -2,6 +2,7 @@ import { Resource, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { ObsidianClient } from "./obsidian.js";
 import { TagResponse, ObsidianFile, JsonLogicQuery } from "./types.js";
 import { PropertyManager } from "./properties.js";
+import { join, sep } from "path";
 
 export class TagResource {
   private static readonly TAG_PATTERN = /#[a-zA-Z0-9_-]+/g;
@@ -27,9 +28,9 @@ export class TagResource {
 
   private async initializeCache() {
     try {
-      // Get all markdown files
+      // Get all markdown files using platform-agnostic path pattern
       const query: JsonLogicQuery = {
-        "glob": ["**/*.md", { "var": "path" }]
+        "glob": [`**${sep}*.md`.replace(/\\/g, '/'), { "var": "path" }]
       };
       
       const results = await this.client.searchJson(query);

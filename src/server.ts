@@ -296,11 +296,35 @@ server.onerror = (error) => {
   console.error("[MCP Error]", error);
 };
 
-// Handle shutdown
-process.on("SIGINT", async () => {
+// Handle shutdown gracefully across platforms
+const cleanup = async () => {
+  console.error('Shutting down server...');
   clearInterval(cleanupInterval); // Clean up rate limit interval
   await server.close();
   process.exit(0);
+};
+
+// Handle various termination signals
+process.on('SIGINT', cleanup);  // Ctrl+C on all platforms
+process.on('SIGTERM', cleanup); // Termination request
+if (process.platform === 'win32') {
+  // Windows-specific handling
+  process.on('SIGHUP', cleanup);  // Terminal closed
+} else {
+  // Unix-specific signals
+  process.on('SIGUSR1', cleanup);
+  process.on('SIGUSR2', cleanup);
+}
+
+// Handle uncaught errors
+process.on('uncaughtException', async (error) => {
+  console.error('Uncaught exception:', error);
+  await cleanup();
+});
+
+process.on('unhandledRejection', async (error) => {
+  console.error('Unhandled rejection:', error);
+  await cleanup();
 });
 
 // Export the run function

@@ -8,10 +8,11 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "build": "tsc && chmod +x build/index.js",
+    "build": "tsc",
+    "postbuild": "node -e \"if (process.platform !== 'win32') require('fs').chmodSync('build/index.js', '755')\"",
     "start": "node build/index.js",
     "dev": "tsc -w",
-    "clean": "rm -rf build",
+    "clean": "node -e \"require('fs').rmSync('build', { recursive: true, force: true })\"",
     "rebuild": "npm run clean && npm run build",
     "test": "echo \"No tests specified yet\" && exit 0",
     "lint": "eslint . --ext .ts",
