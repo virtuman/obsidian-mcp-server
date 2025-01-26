@@ -1,6 +1,8 @@
 import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { ObsidianClient } from "./obsidian.js";
 import { encoding_for_model } from "tiktoken";
+import { join } from "path";
+import { EOL } from "os";
 import {
   ToolHandler,
   PatchContentArgs,
@@ -651,7 +653,7 @@ export class GetTagsToolHandler extends BaseToolHandler<GetTagsArgs> {
     let scannedFiles = 0;
 
     for (const file of files) {
-      const fullPath = basePath ? `${basePath}/${file.path}` : file.path;
+      const fullPath = basePath ? join(basePath, file.path) : file.path;
 
       if (file.type === "folder" && file.children) {
         // Recursively process subdirectories

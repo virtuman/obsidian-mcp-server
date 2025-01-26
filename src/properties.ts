@@ -1,5 +1,6 @@
 import { parse, stringify } from 'yaml';
 import { ObsidianClient } from './obsidian.js';
+import { EOL } from 'os';
 import {
   ObsidianProperties,
   ObsidianPropertiesSchema,
@@ -16,13 +17,13 @@ export class PropertyManager {
    */
   parseProperties(content: string): ObsidianProperties {
     try {
-      // Extract frontmatter between --- markers
-      const match = content.match(/^---\n([\s\S]*?)\n---/);
+      // Extract frontmatter between --- markers (handles both \n and \r\n)
+      const match = content.match(/^---(\r?\n)([\s\S]*?)\r?\n---/);
       if (!match) {
         return {};
       }
 
-      const frontmatter = match[1];
+      const frontmatter = match[2];
       const properties = parse(frontmatter);
       
       // Ensure tags have # prefix
@@ -57,9 +58,9 @@ export class PropertyManager {
         Object.entries(properties).filter(([_, v]) => v !== undefined)
       );
 
-      // Generate YAML
+      // Generate YAML with platform-specific line endings
       const yaml = stringify(cleanProperties);
-      return `---\n${yaml}---\n`;
+      return `---${EOL}${yaml}---${EOL}`;
     } catch (error) {
       console.error('Error generating properties:', error);
       throw error;
@@ -176,8 +177,8 @@ export class PropertyManager {
       // Generate new frontmatter
       const newFrontmatter = this.generateProperties(mergedProperties);
 
-      // Replace existing frontmatter or prepend to file
-      const newContent = content.replace(/^---[\s\S]*?---\n/, '') || '';
+      // Replace existing frontmatter or prepend to file (handles both \n and \r\n)
+      const newContent = content.replace(/^---[\s\S]*?---\r?\n/, '') || '';
       const updatedContent = newFrontmatter + newContent;
 
       // Update file
