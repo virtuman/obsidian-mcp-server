@@ -15,7 +15,7 @@ export interface ObsidianServerConfig {
 }
 
 export const DEFAULT_OBSIDIAN_CONFIG: ObsidianServerConfig = {
-  protocol: "https",
+  protocol: "https", // HTTPS required by default in Obsidian REST API plugin
   host: "127.0.0.1",
   port: 27124
 } as const;

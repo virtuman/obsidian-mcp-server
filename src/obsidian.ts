@@ -41,13 +41,20 @@ export class ObsidianClient {
 
   constructor(config: ObsidianConfig) {
     if (!config.apiKey) {
-      throw new ObsidianError("API key is required", 40100); // 40100 = Unauthorized
+      throw new ObsidianError(
+        "Missing API key. To fix this:\n" +
+        "1. Install the 'Local REST API' plugin in Obsidian\n" +
+        "2. Enable the plugin in Obsidian Settings\n" +
+        "3. Copy your API key from Obsidian Settings > Local REST API\n" +
+        "4. Provide the API key in your configuration",
+        40100 // Unauthorized
+      );
     }
 
     // Combine defaults with provided config
     this.config = {
       ...DEFAULT_OBSIDIAN_CONFIG,
-      verifySSL: config.verifySSL ?? process.env.NODE_ENV === 'production', // Enable SSL verification in production by default
+      verifySSL: config.verifySSL ?? true, // Default to true as required by Obsidian REST API plugin
       apiKey: config.apiKey,
       timeout: config.timeout ?? 5000, // 5 second default timeout
       maxContentLength: config.maxContentLength ?? 50 * 1024 * 1024, // 50MB
@@ -84,8 +91,9 @@ export class ObsidianClient {
 
     if (!this.config.verifySSL) {
       console.warn(
-        "WARNING: SSL verification is disabled. This is not recommended for production use.",
-        process.env.NODE_ENV === 'production' ? "Consider enabling SSL verification." : "This is acceptable for local development only."
+        "WARNING: SSL verification is disabled. The Obsidian REST API plugin requires HTTPS by default.\n" +
+        "Make sure you have configured the certificate as a trusted certificate authority.\n" +
+        "See Obsidian Settings > Local REST API > 'How to Access' for setup instructions."
       );
     }
 
@@ -121,19 +129,17 @@ export class ObsidianClient {
     // Prevent path traversal attacks
     const normalizedPath = filepath.replace(/\\/g, '/');
     if (normalizedPath.includes('../') || normalizedPath.includes('..\\')) {
-      throw new ObsidianError('Invalid file path: Path traversal not allowed', 40001); // 40001 = Path traversal error
+      throw new ObsidianError('Invalid file path: Path traversal not allowed', 40001);
     }
     
     // Additional path validations
     if (normalizedPath.startsWith('/') || /^[a-zA-Z]:/.test(normalizedPath)) {
-      throw new ObsidianError('Invalid file path: Absolute paths not allowed', 40002); // 40002 = Invalid path format
+      throw new ObsidianError('Invalid file path: Absolute paths not allowed', 40002);
     }
   }
 
   private getErrorCode(status: number): number {
-    // Convert HTTP status codes to 5-digit error codes
     switch (status) {
-      // Client errors (400-499)
       case 400: return 40000; // Bad request
       case 401: return 40100; // Unauthorized
       case 403: return 40300; // Forbidden
@@ -141,19 +147,15 @@ export class ObsidianClient {
       case 405: return 40500; // Method not allowed
       case 409: return 40900; // Conflict
       case 429: return 42900; // Too many requests
-      
-      // Server errors (500-599)
       case 500: return 50000; // Internal server error
       case 501: return 50100; // Not implemented
       case 502: return 50200; // Bad gateway
       case 503: return 50300; // Service unavailable
       case 504: return 50400; // Gateway timeout
-      
-      // Default cases
       default:
         if (status >= 400 && status < 500) return 40000 + (status - 400) * 100;
         if (status >= 500 && status < 600) return 50000 + (status - 500) * 100;
-        return 50000; // Default to internal server error
+        return 50000;
     }
   }
 
@@ -165,20 +167,51 @@ export class ObsidianClient {
         const axiosError = error as AxiosError<ApiError>;
         const response = axiosError.response;
         const errorData = response?.data;
-        
-        // If the API returns a proper 5-digit error code, use it
-        // Otherwise, convert HTTP status to 5-digit code
-        const errorCode = errorData?.errorCode ??
-          this.getErrorCode(response?.status ?? 500);
-        
-        const message = errorData?.message ??
-          axiosError.message ??
-          "Unknown error";
-        
+
+        // Handle common connection errors with helpful messages
+        if (error.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' || error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
+          throw new ObsidianError(
+            `SSL certificate verification failed. To fix this:\n` +
+            `1. Go to Obsidian Settings > Local REST API\n` +
+            `2. Under 'How to Access', copy the certificate\n` +
+            `3. Configure the certificate as a trusted certificate authority\n` +
+            `4. Ensure you're using HTTPS (HTTP is disabled by default)\n` +
+            `Original error: ${error.message}`,
+            50001, // SSL error code
+            { code: error.code, config: { verifySSL: this.config.verifySSL } }
+          );
+        }
+
+        if (error.code === 'ECONNREFUSED') {
+          throw new ObsidianError(
+            `Connection refused. To fix this:\n` +
+            `1. Ensure Obsidian is running\n` +
+            `2. Verify the 'Local REST API' plugin is enabled in Obsidian Settings\n` +
+            `3. Check that you're using the correct host (${this.config.host}) and port (${this.config.port})\n` +
+            `4. Make sure HTTPS is enabled in the plugin settings`,
+            50002, // Connection refused
+            { code: error.code }
+          );
+        }
+
+        if (response?.status === 401) {
+          throw new ObsidianError(
+            `Authentication failed. To fix this:\n` +
+            `1. Go to Obsidian Settings > Local REST API\n` +
+            `2. Copy your API key from the settings\n` +
+            `3. Update your configuration with the new API key\n` +
+            `Note: The API key changes when you regenerate certificates`,
+            40100, // Unauthorized
+            { code: error.code }
+          );
+        }
+
+        // For other errors, use API error code if available
+        const errorCode = errorData?.errorCode ?? this.getErrorCode(response?.status ?? 500);
+        const message = errorData?.message ?? axiosError.message ?? "Unknown error";
         throw new ObsidianError(message, errorCode, errorData);
       }
       
-      // For non-Axios errors, use a generic server error code
       if (error instanceof Error) {
         throw new ObsidianError(error.message, 50000, error);
       }
@@ -189,8 +222,6 @@ export class ObsidianClient {
 
   async listFilesInVault(): Promise<ObsidianFile[]> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Listing vault files`);
       const response = await this.client.get<{ files: ObsidianFile[] }>("/vault/");
       return response.data.files;
     });
@@ -199,8 +230,6 @@ export class ObsidianClient {
   async listFilesInDir(dirpath: string): Promise<ObsidianFile[]> {
     this.validateFilePath(dirpath);
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Listing files in directory: ${dirpath}`);
       const response = await this.client.get<{ files: ObsidianFile[] }>(`/vault/${dirpath}/`);
       return response.data.files;
     });
@@ -209,8 +238,6 @@ export class ObsidianClient {
   async getFileContents(filepath: string): Promise<string> {
     this.validateFilePath(filepath);
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Getting file contents: ${filepath}`);
       const response = await this.client.get<string>(`/vault/${filepath}`);
       return response.data;
     });
@@ -218,14 +245,10 @@ export class ObsidianClient {
 
   async search(query: string, contextLength: number = 100): Promise<SimpleSearchResult[]> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Performing simple search: ${query}`);
       const response = await this.client.post<SimpleSearchResult[]>(
         "/search/simple/",
         null,
-        {
-          params: { query, contextLength }
-        }
+        { params: { query, contextLength } }
       );
       return response.data;
     });
@@ -234,11 +257,9 @@ export class ObsidianClient {
   async appendContent(filepath: string, content: string): Promise<void> {
     this.validateFilePath(filepath);
     if (!content || typeof content !== 'string') {
-      throw new ObsidianError('Invalid content: Content must be a non-empty string', 40003); // 40003 = Invalid content
+      throw new ObsidianError('Invalid content: Content must be a non-empty string', 40003);
     }
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Appending content to: ${filepath}`);
       await this.client.post(
         `/vault/${filepath}`,
         content,
@@ -254,12 +275,10 @@ export class ObsidianClient {
   async updateContent(filepath: string, content: string): Promise<void> {
     this.validateFilePath(filepath);
     if (!content || typeof content !== 'string') {
-      throw new ObsidianError('Invalid content: Content must be a non-empty string', 40003); // 40003 = Invalid content
+      throw new ObsidianError('Invalid content: Content must be a non-empty string', 40003);
     }
 
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Updating content in: ${filepath}`);
       await this.client.put(
         `/vault/${filepath}`,
         content,
@@ -274,10 +293,6 @@ export class ObsidianClient {
 
   async searchJson(query: JsonLogicQuery): Promise<SearchResponse[]> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Performing complex search with query:`, JSON.stringify(query));
-      
-      // Check if this is a tag-based search
       const isTagSearch = JSON.stringify(query).includes('"contains"') &&
                          JSON.stringify(query).includes('"#"');
       
@@ -292,17 +307,12 @@ export class ObsidianClient {
         }
       );
 
-      if (isTagSearch) {
-        return response.data as SimpleSearchResult[];
-      }
-      return response.data as SearchResult[];
+      return isTagSearch ? response.data as SimpleSearchResult[] : response.data as SearchResult[];
     });
   }
 
   async getStatus(): Promise<ObsidianStatus> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Getting server status`);
       const response = await this.client.get<ObsidianStatus>("/");
       return response.data;
     });
@@ -310,8 +320,6 @@ export class ObsidianClient {
 
   async listCommands(): Promise<ObsidianCommand[]> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Listing available commands`);
       const response = await this.client.get<{commands: ObsidianCommand[]}>("/commands/");
       return response.data.commands;
     });
@@ -319,8 +327,6 @@ export class ObsidianClient {
 
   async executeCommand(commandId: string): Promise<void> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Executing command: ${commandId}`);
       await this.client.post(`/commands/${commandId}/`);
     });
   }
@@ -328,8 +334,6 @@ export class ObsidianClient {
   async openFile(filepath: string, newLeaf: boolean = false): Promise<void> {
     this.validateFilePath(filepath);
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Opening file: ${filepath}`);
       await this.client.post(`/open/${filepath}`, null, {
         params: { newLeaf }
       });
@@ -338,8 +342,6 @@ export class ObsidianClient {
 
   async getActiveFile(): Promise<NoteJson> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Getting active file`);
       const response = await this.client.get<NoteJson>("/active/", {
         headers: {
           "Accept": "application/vnd.olrapi.note+json"
@@ -351,8 +353,6 @@ export class ObsidianClient {
 
   async updateActiveFile(content: string): Promise<void> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Updating active file`);
       await this.client.put("/active/", content, {
         headers: {
           "Content-Type": "text/markdown"
@@ -363,21 +363,22 @@ export class ObsidianClient {
 
   async deleteActiveFile(): Promise<void> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Deleting active file`);
       await this.client.delete("/active/");
     });
   }
 
-  async patchActiveFile(operation: "append" | "prepend" | "replace", targetType: "heading" | "block" | "frontmatter", target: string, content: string, options?: {
-    delimiter?: string;
-    trimWhitespace?: boolean;
-    contentType?: "text/markdown" | "application/json";
-  }): Promise<void> {
+  async patchActiveFile(
+    operation: "append" | "prepend" | "replace",
+    targetType: "heading" | "block" | "frontmatter",
+    target: string,
+    content: string,
+    options?: {
+      delimiter?: string;
+      trimWhitespace?: boolean;
+      contentType?: "text/markdown" | "application/json";
+    }
+  ): Promise<void> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Patching active file: ${operation} ${targetType} ${target}`);
-      
       const headers: Record<string, string> = {
         "Operation": operation,
         "Target-Type": targetType,
@@ -398,8 +399,6 @@ export class ObsidianClient {
 
   async getPeriodicNote(period: PeriodType["type"]): Promise<NoteJson> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Getting ${period} note`);
       const response = await this.client.get<NoteJson>(`/periodic/${period}/`, {
         headers: {
           "Accept": "application/vnd.olrapi.note+json"
@@ -411,8 +410,6 @@ export class ObsidianClient {
 
   async updatePeriodicNote(period: PeriodType["type"], content: string): Promise<void> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Updating ${period} note`);
       await this.client.put(`/periodic/${period}/`, content, {
         headers: {
           "Content-Type": "text/markdown"
@@ -423,21 +420,23 @@ export class ObsidianClient {
 
   async deletePeriodicNote(period: PeriodType["type"]): Promise<void> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Deleting ${period} note`);
       await this.client.delete(`/periodic/${period}/`);
     });
   }
 
-  async patchPeriodicNote(period: PeriodType["type"], operation: "append" | "prepend" | "replace", targetType: "heading" | "block" | "frontmatter", target: string, content: string, options?: {
-    delimiter?: string;
-    trimWhitespace?: boolean;
-    contentType?: "text/markdown" | "application/json";
-  }): Promise<void> {
+  async patchPeriodicNote(
+    period: PeriodType["type"],
+    operation: "append" | "prepend" | "replace",
+    targetType: "heading" | "block" | "frontmatter",
+    target: string,
+    content: string,
+    options?: {
+      delimiter?: string;
+      trimWhitespace?: boolean;
+      contentType?: "text/markdown" | "application/json";
+    }
+  ): Promise<void> {
     return this.safeRequest(async () => {
-      const requestId = crypto.randomUUID();
-      console.debug(`[${requestId}] Patching ${period} note: ${operation} ${targetType} ${target}`);
-      
       const headers: Record<string, string> = {
         "Operation": operation,
         "Target-Type": targetType,
