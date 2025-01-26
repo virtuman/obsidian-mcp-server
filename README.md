@@ -52,29 +52,73 @@ npm install obsidian-mcp-server
 
 ## Configuration
 
-Add to your MCP client settings:
+Add to your MCP client settings (e.g., `claude_desktop_config.json` or `cline_mcp_settings.json`):
 
 ```json
 {
   "mcpServers": {
-    "obsidian": {
+    "obsidian-mcp-server": {
       "command": "node",
       "args": ["/path/to/obsidian-mcp-server/build/index.js"],
       "env": {
-        "OBSIDIAN_API_KEY": "your-api-key-here",
-        "NODE_ENV": "production"
+        "OBSIDIAN_API_KEY": "your_api_key_here",
+        "VERIFY_SSL": "false",
+        "OBSIDIAN_PROTOCOL": "https",
+        "OBSIDIAN_HOST": "127.0.0.1",
+        "OBSIDIAN_PORT": "27124",
+        "REQUEST_TIMEOUT": "5000",
+        "MAX_CONTENT_LENGTH": "52428800",
+        "MAX_BODY_LENGTH": "52428800",
+        "RATE_LIMIT_WINDOW_MS": "900000",
+        "RATE_LIMIT_MAX_REQUESTS": "200",
+        "TOOL_TIMEOUT_MS": "60000"
       }
     }
   }
 }
 ```
 
-Environment configuration:
-- `OBSIDIAN_VERIFY_SSL`: Enable SSL verification (default: false)
-- `RATE_LIMIT_WINDOW_MS`: Rate limit window in ms (default: 15 minutes)
-- `RATE_LIMIT_MAX_REQUESTS`: Max requests per window (default: 200)
-- `MAX_TOKENS`: Maximum tokens per response (default: 20000)
-- `TOOL_TIMEOUT_MS`: Tool execution timeout (default: 60000)
+Environment Variables:
+
+Required:
+- `OBSIDIAN_API_KEY`: Your API key from Obsidian's Local REST API plugin settings
+
+Connection Settings:
+- `VERIFY_SSL`: Enable SSL certificate verification (default: false in development)
+- `OBSIDIAN_PROTOCOL`: Protocol to use (default: "https")
+- `OBSIDIAN_HOST`: Host address (default: "127.0.0.1")
+- `OBSIDIAN_PORT`: Port number (default: 27124)
+
+Request Limits:
+- `REQUEST_TIMEOUT`: Request timeout in milliseconds (default: 5000)
+- `MAX_CONTENT_LENGTH`: Maximum response content length in bytes (default: 52428800 [50MB])
+- `MAX_BODY_LENGTH`: Maximum request body length in bytes (default: 52428800 [50MB])
+
+Rate Limiting:
+- `RATE_LIMIT_WINDOW_MS`: Rate limit window in milliseconds (default: 900000 [15 minutes])
+- `RATE_LIMIT_MAX_REQUESTS`: Maximum requests per window (default: 200)
+
+Tool Execution:
+- `TOOL_TIMEOUT_MS`: Tool execution timeout in milliseconds (default: 60000 [1 minute])
+
+SSL Certificate Setup:
+
+For Windows Users:
+1. Development Setup (Not Recommended for Production):
+   - Set `VERIFY_SSL` to "false"
+   - Set `OBSIDIAN_PROTOCOL` to "http"
+   - Enable "Non-encrypted (HTTP) Server" in Obsidian's Local REST API settings
+
+2. Production Setup (Recommended):
+   - Set `VERIFY_SSL` to "true"
+   - Get the certificate from Obsidian Settings > Local REST API > 'How to Access'
+   - Open Windows Certificate Manager (certmgr.msc)
+   - Navigate to "Trusted Root Certification Authorities" > "Certificates"
+   - Right-click > "All Tasks" > "Import" and select the certificate file
+
+For Other Systems:
+- macOS: Add certificate to Keychain Access
+- Linux: Add to ca-certificates
 
 Additional configuration options:
 ```typescript

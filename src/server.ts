@@ -78,10 +78,13 @@ const cleanupInterval = setInterval(() => {
   }
 }, 60000); // Clean up every minute
 
-// Initialize Obsidian client
+// Initialize Obsidian client with environment configuration
 const client = new ObsidianClient({
   apiKey: API_KEY,
-  verifySSL: process.env.NODE_ENV === 'production' // Enable SSL verification in production
+  verifySSL: process.env.VERIFY_SSL === 'true',
+  timeout: parseInt(process.env.REQUEST_TIMEOUT || '5000'),
+  maxContentLength: parseInt(process.env.MAX_CONTENT_LENGTH || String(50 * 1024 * 1024)),
+  maxBodyLength: parseInt(process.env.MAX_BODY_LENGTH || String(50 * 1024 * 1024))
 });
 
 // Initialize tool handlers

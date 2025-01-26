@@ -62,14 +62,27 @@ export class ObsidianClient {
     // Determine if we're in a development environment
     const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
 
-    // Combine defaults with provided config
+    // Read environment variables with fallbacks
+    const envConfig = {
+      protocol: process.env.OBSIDIAN_PROTOCOL as "http" | "https" || DEFAULT_OBSIDIAN_CONFIG.protocol,
+      host: process.env.OBSIDIAN_HOST || DEFAULT_OBSIDIAN_CONFIG.host,
+      port: parseInt(process.env.OBSIDIAN_PORT || String(DEFAULT_OBSIDIAN_CONFIG.port)),
+      verifySSL: process.env.VERIFY_SSL ? process.env.VERIFY_SSL === 'true' : (isDev ? false : true),
+      timeout: parseInt(process.env.REQUEST_TIMEOUT || '5000'),
+      maxContentLength: parseInt(process.env.MAX_CONTENT_LENGTH || String(50 * 1024 * 1024)),
+      maxBodyLength: parseInt(process.env.MAX_BODY_LENGTH || String(50 * 1024 * 1024))
+    };
+
+    // Combine defaults with provided config and environment variables
     this.config = {
-      ...DEFAULT_OBSIDIAN_CONFIG,
-      verifySSL: config.verifySSL ?? (isDev ? false : true), // Default to false in development
+      protocol: envConfig.protocol,
+      host: envConfig.host,
+      port: envConfig.port,
+      verifySSL: config.verifySSL ?? envConfig.verifySSL,
       apiKey: config.apiKey,
-      timeout: config.timeout ?? 5000, // 5 second default timeout
-      maxContentLength: config.maxContentLength ?? 50 * 1024 * 1024, // 50MB
-      maxBodyLength: config.maxBodyLength ?? 50 * 1024 * 1024 // 50MB
+      timeout: config.timeout ?? envConfig.timeout,
+      maxContentLength: config.maxContentLength ?? envConfig.maxContentLength,
+      maxBodyLength: config.maxBodyLength ?? envConfig.maxBodyLength
     };
 
     // Configure HTTPS agent
