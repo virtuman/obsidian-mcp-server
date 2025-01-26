@@ -5,7 +5,6 @@ import { PropertyManager } from "./properties.js";
 import { join, sep } from "path";
 
 export class TagResource {
-  private static readonly TAG_PATTERN = /#[a-zA-Z0-9_-]+/g;
   private tagCache: Map<string, Set<string>> = new Map();
   private propertyManager: PropertyManager;
   private isInitialized = false;
@@ -43,19 +42,13 @@ export class TagResource {
         try {
           const content = await this.client.getFileContents(result.filename);
           
-          // Extract tags from frontmatter
+          // Only extract tags from frontmatter YAML
           const properties = this.propertyManager.parseProperties(content);
           if (properties.tags) {
             properties.tags.forEach((tag: string) => {
               this.addTag(tag, result.filename);
             });
           }
-          
-          // Extract inline tags
-          const inlineTags = content.match(TagResource.TAG_PATTERN) || [];
-          inlineTags.forEach(tag => {
-            this.addTag(tag, result.filename);
-          });
         } catch (error) {
           console.error(`Failed to process file ${result.filename}:`, error);
         }

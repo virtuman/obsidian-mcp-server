@@ -23,7 +23,7 @@ export const ObsidianPropertiesSchema = z.object({
   type: z.array(PropertyType).optional(),
 
   // Organization
-  tags: z.array(z.string().startsWith("#")).optional(),
+  tags: z.array(z.string()).optional(),
 
   // Technical Metadata
   status: z.array(StatusEnum).optional(),
@@ -51,7 +51,7 @@ export const PropertyUpdateSchema = z.object({
   type: z.array(PropertyType).optional(),
 
   // Organization
-  tags: z.array(z.string().startsWith("#")).optional(),
+  tags: z.array(z.string()).optional(),
 
   // Technical Metadata
   status: z.array(StatusEnum).optional(),
