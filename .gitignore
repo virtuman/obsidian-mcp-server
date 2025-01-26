@@ -40,7 +40,6 @@ yarn.lock
 demo/
 demos/
 example/
-examples/
 samples/
 .sample-env
 sample.*
