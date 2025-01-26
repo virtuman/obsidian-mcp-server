@@ -25,11 +25,18 @@ export class PropertyManager {
       const frontmatter = match[1];
       const properties = parse(frontmatter);
       
+      // Ensure tags have # prefix
+      if (properties.tags && Array.isArray(properties.tags)) {
+        properties.tags = properties.tags.map((tag: string) =>
+          tag.startsWith('#') ? tag : `#${tag}`
+        );
+      }
+
       // Validate against schema
       const result = ObsidianPropertiesSchema.safeParse(properties);
       if (!result.success) {
         console.warn('Property validation warnings:', result.error);
-        // Return partial valid properties rather than throwing
+        // Return the properties with fixed tags
         return properties;
       }
 

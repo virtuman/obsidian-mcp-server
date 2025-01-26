@@ -24,14 +24,22 @@ import { dirname, join } from "path";
 // Get package version for user agent
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const packagePath = join(__dirname, '..', '..', 'package.json');
 const VERSION = (() => {
   try {
+    // Look for package.json in the same directory as the built files
+    const packagePath = join(__dirname, '..', 'package.json');
     const pkg = JSON.parse(readFileSync(packagePath, 'utf-8'));
     return pkg.version;
   } catch (error) {
-    console.warn('Could not read package.json version:', error);
-    return '1.1.0'; // Fallback version
+    // Try alternative location for development
+    try {
+      const devPackagePath = join(__dirname, '..', '..', 'package.json');
+      const pkg = JSON.parse(readFileSync(devPackagePath, 'utf-8'));
+      return pkg.version;
+    } catch (devError) {
+      console.warn('Could not read package.json version, using fallback');
+      return '1.1.0'; // Fallback version
+    }
   }
 })();
 
@@ -51,10 +59,13 @@ export class ObsidianClient {
       );
     }
 
+    // Determine if we're in a development environment
+    const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
+
     // Combine defaults with provided config
     this.config = {
       ...DEFAULT_OBSIDIAN_CONFIG,
-      verifySSL: config.verifySSL ?? true, // Default to true as required by Obsidian REST API plugin
+      verifySSL: config.verifySSL ?? (isDev ? false : true), // Default to false in development
       apiKey: config.apiKey,
       timeout: config.timeout ?? 5000, // 5 second default timeout
       maxContentLength: config.maxContentLength ?? 50 * 1024 * 1024, // 50MB
@@ -91,9 +102,18 @@ export class ObsidianClient {
 
     if (!this.config.verifySSL) {
       console.warn(
-        "WARNING: SSL verification is disabled. The Obsidian REST API plugin requires HTTPS by default.\n" +
-        "Make sure you have configured the certificate as a trusted certificate authority.\n" +
-        "See Obsidian Settings > Local REST API > 'How to Access' for setup instructions."
+        "WARNING: SSL verification is disabled. While this works for development, it's not recommended for production.\n" +
+        "To properly configure SSL certificates:\n" +
+        "1. Go to Obsidian Settings > Local REST API\n" +
+        "2. Under 'How to Access', copy the certificate\n" +
+        "3. For Windows users:\n" +
+        "   - Open 'certmgr.msc' (Windows Certificate Manager)\n" +
+        "   - Go to 'Trusted Root Certification Authorities' > 'Certificates'\n" +
+        "   - Right-click > 'All Tasks' > 'Import' and follow the wizard\n" +
+        "   - Select the certificate file you copied from Obsidian\n" +
+        "4. For other systems:\n" +
+        "   - macOS: Add to Keychain Access\n" +
+        "   - Linux: Add to ca-certificates"
       );
     }
 
