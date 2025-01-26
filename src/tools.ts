@@ -648,48 +648,36 @@ export class GetTagsToolHandler extends BaseToolHandler<GetTagsArgs> {
     };
   }
 
-  private async processFiles(files: ObsidianFile[], basePath: string, tagMap: Map<string, Set<string>>): Promise<number> {
-    let scannedFiles = 0;
-
-    for (const file of files) {
-      const fullPath = basePath ? join(basePath, file.path) : file.path;
-
-      if (file.type === "folder" && file.children) {
-        // Recursively process subdirectories
-        scannedFiles += await this.processFiles(file.children, fullPath, tagMap);
-      } else if (file.type === "file" && file.path.endsWith('.md')) {
-        // Process markdown files
-        scannedFiles++;
-        const content = await this.client.getFileContents(fullPath);
-        
-        // Only extract tags from frontmatter
-        const properties = this.propertyManager.parseProperties(content);
-        if (properties.tags) {
-          properties.tags.forEach((tag: string) => {
-            if (!tagMap.has(tag)) {
-              tagMap.set(tag, new Set());
-            }
-            tagMap.get(tag)!.add(fullPath);
-          });
-        }
-      }
-    }
-    
-    return scannedFiles;
-  }
-
   async runTool(args: GetTagsArgs): Promise<Array<TextContent>> {
     try {
       const tagMap = new Map<string, Set<string>>();
       const basePath = args.path || '';
       
-      // Get files from vault or specific directory
-      const files = args.path
-        ? await this.client.listFilesInDir(args.path)
-        : await this.client.listFilesInVault();
-      
-      // Process files recursively
-      const scannedFiles = await this.processFiles(files, basePath, tagMap);
+      // Use searchJson to find files with tags in frontmatter
+      const query: JsonLogicQuery = args.path
+        ? { "glob": [join(args.path, "**/*.md").replace(/\\/g, '/'), { "var": "path" }] }
+        : { "glob": ["**/*.md", { "var": "path" }] };
+
+      const results = await this.client.searchJson(query);
+      let scannedFiles = 0;
+
+      // Process each file
+      for (const result of results) {
+        if (!('filename' in result)) continue;
+        
+        const content = await this.client.getFileContents(result.filename);
+        const properties = this.propertyManager.parseProperties(content);
+        
+        if (properties.tags) {
+          scannedFiles++;
+          properties.tags.forEach((tag: string) => {
+            if (!tagMap.has(tag)) {
+              tagMap.set(tag, new Set());
+            }
+            tagMap.get(tag)!.add(result.filename);
+          });
+        }
+      }
       
       // Calculate total occurrences
       const totalOccurrences = Array.from(tagMap.values())
