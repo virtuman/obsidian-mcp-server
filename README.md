@@ -1,8 +1,8 @@
 # Obsidian MCP Server
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
-[![Model Context Protocol](https://img.shields.io/badge/MCP-1.4.0-green.svg)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/Version-1.2.3-blue.svg)]()
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
+[![Model Context Protocol](https://img.shields.io/badge/MCP-1.6.1-green.svg)](https://modelcontextprotocol.io/)
+[![Version](https://img.shields.io/badge/Version-1.4.1-blue.svg)]()
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-blue.svg)]()
 [![GitHub](https://img.shields.io/github/stars/cyanheads/obsidian-mcp-server?style=social)](https://github.com/cyanheads/obsidian-mcp-server)
@@ -18,6 +18,7 @@ Requires the Local REST API plugin in Obsidian.
 ### File Operations
 - Atomic file/directory operations with validation
 - Resource monitoring and cleanup
+- Error handling and graceful failure
 
 ### Search System
 - Full-text search with configurable context
@@ -32,12 +33,14 @@ Requires the Local REST API plugin in Obsidian.
 ### Security & Performance
 - API key auth with rate limiting and SSL options
 - Resource monitoring and health checks
+- Graceful shutdown handling
 
 ## Installation
 
-1. Install Node.js (LTS recommended)
-2. Enable Local REST API plugin in Obsidian
-3. Clone and build:
+Note: Requires Node.js
+
+1. Enable Local REST API plugin in Obsidian
+2. Clone and build:
 ```bash
 git clone git@github.com:cyanheads/obsidian-mcp-server.git
 cd obsidian-mcp-server
@@ -84,7 +87,7 @@ Required:
 - `OBSIDIAN_API_KEY`: Your API key from Obsidian's Local REST API plugin settings
 
 Connection Settings:
-- `VERIFY_SSL`: Enable SSL certificate verification (default: false in development)
+- `VERIFY_SSL`: Enable SSL certificate verification (default: false) # This must be set to false for self-signed certificates. If you are running locally or don't understand what this means, this should be set to false.
 - `OBSIDIAN_PROTOCOL`: Protocol to use (default: "https")
 - `OBSIDIAN_HOST`: Host address (default: "127.0.0.1")
 - `OBSIDIAN_PORT`: Port number (default: 27124)
@@ -101,46 +104,22 @@ Rate Limiting:
 Tool Execution:
 - `TOOL_TIMEOUT_MS`: Tool execution timeout in milliseconds (default: 60000 [1 minute])
 
-SSL Certificate Setup:
+## Project Structure
 
-For Windows Users:
-1. Development Setup (Not Recommended for Production):
-   - Set `VERIFY_SSL` to "false"
-   - Set `OBSIDIAN_PROTOCOL` to "http"
-   - Enable "Non-encrypted (HTTP) Server" in Obsidian's Local REST API settings
+The project follows a modular architecture with clear separation of concerns:
 
-2. Production Setup (Recommended):
-   - Set `VERIFY_SSL` to "true"
-   - Get the certificate from Obsidian Settings > Local REST API > 'How to Access'
-   - Open Windows Certificate Manager (certmgr.msc)
-   - Navigate to "Trusted Root Certification Authorities" > "Certificates"
-   - Right-click > "All Tasks" > "Import" and select the certificate file
-
-For Other Systems:
-- macOS: Add certificate to Keychain Access
-- Linux: Add to ca-certificates
-
-Additional configuration options:
-```typescript
-interface ObsidianConfig {
-  apiKey: string;           // Required: API key for authentication
-  verifySSL?: boolean;      // Optional: Enable SSL verification
-  timeout?: number;         // Optional: Request timeout in ms
-  maxContentLength?: number;// Optional: Max response content length
-  maxBodyLength?: number;   // Optional: Max request body length
-}
-
-interface RateLimitConfig {
-  windowMs: number;         // Time window for rate limiting
-  maxRequests: number;      // Max requests per window
-}
 ```
-
-Error Handling:
-- All errors include a 5-digit error code
-- HTTP status codes are automatically converted (e.g., 404 -> 40400)
-- Default server error code: 50000
-- Detailed error messages include original error stack traces in development
+src/
+  ├── index.ts          # Main entry point
+  ├── mcp/              # MCP server implementation
+  ├── obsidian/         # Obsidian API client and types
+  ├── resources/        # MCP resource implementations
+  ├── tools/            # MCP tool implementations
+  │   ├── files/        # File operations tools
+  │   ├── search/       # Search tools
+  │   └── properties/   # Property management tools
+  └── utils/            # Shared utilities
+```
 
 ## Tools
 
@@ -184,6 +163,11 @@ obsidian_complex_search: {
   //   {"in": ["#mytag", {"var": "frontmatter.tags"}]}
   // ]}
 }
+
+// Get all tags in vault or directory
+obsidian_get_tags: {
+  path?: string  // Optional: limit to specific directory
+}
 ```
 
 ### Content Modification
@@ -201,41 +185,8 @@ obsidian_patch_content: {
 }
 ```
 
-### Command Management
-```typescript
-// List available commands
-obsidian_list_commands: {}
-
-// Execute a command
-obsidian_execute_command: {
-  commandId: string  // Command ID to execute
-}
-```
-
-### File Navigation
-```typescript
-// Open a file in Obsidian
-obsidian_open_file: {
-  filepath: string,   // Path relative to vault root
-  newLeaf?: boolean  // Open in new leaf (default: false)
-}
-
-// Get active file content
-obsidian_get_active_file: {}
-
-// Get periodic note content
-obsidian_get_periodic_note: {
-  period: "daily" | "weekly" | "monthly" | "quarterly" | "yearly"
-}
-```
-
 ### Property Management
 ```typescript
-// Get all tags in vault or directory
-obsidian_get_tags: {
-  path?: string  // Optional: limit to specific directory
-}
-
 // Get note properties
 obsidian_get_properties: {
   filepath: string  // Path relative to vault root
@@ -285,6 +236,14 @@ obsidian_update_properties: {
 ### Error Prevention
 - Validate inputs and handle errors gracefully
 - Monitor patterns and respect rate limits
+
+## Resources
+
+The MCP server exposes the following resources:
+
+```
+obsidian://tags  # List of all tags used across the vault
+```
 
 ## Contributing
 
