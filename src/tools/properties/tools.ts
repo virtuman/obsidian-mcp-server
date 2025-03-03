@@ -1,29 +1,48 @@
+/**
+ * Property-related tool implementations
+ */
 import { Tool, TextContent } from "@modelcontextprotocol/sdk/types.js";
-import { ObsidianClient } from "./obsidian.js";
-import { BaseToolHandler } from "./tools.js";
-import { PropertyManager } from "./properties.js";
-import { ObsidianProperties } from "./propertyTypes.js";
+import { ObsidianClient } from "../../obsidian/client.js";
+import { BaseToolHandler } from "../base.js";
+import { PropertyManager } from "./manager.js";
+import { ObsidianProperties } from "./types.js";
+import { createLogger } from "../../utils/logging.js";
 
-const TOOL_NAMES = {
+// Create a logger for property tools
+const logger = createLogger('PropertyTools');
+
+/**
+ * Tool names for property operations
+ */
+export const PROPERTY_TOOL_NAMES = {
   GET_PROPERTIES: "obsidian_get_properties",
   UPDATE_PROPERTIES: "obsidian_update_properties"
 } as const;
 
+/**
+ * Arguments for getting properties
+ */
 interface GetPropertiesArgs {
   filepath: string;
 }
 
+/**
+ * Arguments for updating properties
+ */
 interface UpdatePropertiesArgs {
   filepath: string;
   properties: Partial<ObsidianProperties>;
   replace?: boolean;
 }
 
+/**
+ * Tool handler for getting properties from a note
+ */
 export class GetPropertiesToolHandler extends BaseToolHandler<GetPropertiesArgs> {
   private propertyManager: PropertyManager;
 
   constructor(client: ObsidianClient) {
-    super(TOOL_NAMES.GET_PROPERTIES, client);
+    super(PROPERTY_TOOL_NAMES.GET_PROPERTIES, client);
     this.propertyManager = new PropertyManager(client);
   }
 
@@ -61,19 +80,24 @@ export class GetPropertiesToolHandler extends BaseToolHandler<GetPropertiesArgs>
 
   async runTool(args: GetPropertiesArgs): Promise<Array<TextContent>> {
     try {
+      logger.debug(`Getting properties from: ${args.filepath}`);
       const result = await this.propertyManager.getProperties(args.filepath);
       return this.createResponse(result);
     } catch (error) {
+      logger.error(`Error getting properties from ${args.filepath}:`, error);
       return this.handleError(error);
     }
   }
 }
 
+/**
+ * Tool handler for updating properties in a note
+ */
 export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertiesArgs> {
   private propertyManager: PropertyManager;
 
   constructor(client: ObsidianClient) {
-    super(TOOL_NAMES.UPDATE_PROPERTIES, client);
+    super(PROPERTY_TOOL_NAMES.UPDATE_PROPERTIES, client);
     this.propertyManager = new PropertyManager(client);
   }
 
@@ -185,6 +209,7 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
 
   async runTool(args: UpdatePropertiesArgs): Promise<Array<TextContent>> {
     try {
+      logger.debug(`Updating properties for: ${args.filepath}`);
       const result = await this.propertyManager.updateProperties(
         args.filepath,
         args.properties,
@@ -192,6 +217,7 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
       );
       return this.createResponse(result);
     } catch (error) {
+      logger.error(`Error updating properties for ${args.filepath}:`, error);
       return this.handleError(error);
     }
   }

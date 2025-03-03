@@ -170,3 +170,4 @@ coverage/
 *.swo
 *~
 .history/
+*repomix*
