@@ -6,11 +6,32 @@ import { ObsidianClient } from "../obsidian/client.js";
 import { JsonLogicQuery } from "../obsidian/types.js";
 import { PropertyManager } from "../tools/properties/manager.js";
 import { join, sep } from "path";
-import { createLogger } from "../utils/logging.js";
+import { createLogger, ErrorCategoryType } from "../utils/logging.js";
 import { TagResponse } from "./types.js";
 
 // Create a logger for tag resources
 const logger = createLogger('TagResource');
+
+/**
+ * Helper function to safely convert any error to an object
+ */
+function errorToObject(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      errorCategory: ErrorCategoryType.CATEGORY_SYSTEM
+    };
+  } else if (typeof error === 'object' && error !== null) {
+    return error as Record<string, unknown>;
+  } else {
+    return { 
+      error: String(error),
+      errorCategory: ErrorCategoryType.CATEGORY_UNKNOWN
+    };
+  }
+}
 
 /**
  * Resource for providing tags used in the Obsidian vault
@@ -43,6 +64,8 @@ export class TagResource {
    * Initialize the tag cache
    */
   private async initializeCache() {
+    logger.startTimer('init_tag_cache');
+    
     try {
       logger.info('Initializing tag cache');
       
@@ -69,15 +92,24 @@ export class TagResource {
             });
           }
         } catch (error) {
-          logger.error(`Failed to process file ${result.filename}:`, error);
+          logger.error(`Failed to process file ${result.filename}:`, errorToObject(error));
         }
       }
 
       this.isInitialized = true;
       this.lastUpdate = Date.now();
+      
+      const elapsedMs = logger.endTimer('init_tag_cache');
+      logger.logOperationResult(true, 'initialize_tag_cache', elapsedMs, {
+        tagCount: this.tagCache.size,
+        fileCount: results.length
+      });
+      
       logger.info(`Tag cache initialized with ${this.tagCache.size} unique tags`);
     } catch (error) {
-      logger.error("Failed to initialize tag cache:", error);
+      const elapsedMs = logger.endTimer('init_tag_cache');
+      logger.logOperationResult(false, 'initialize_tag_cache', elapsedMs);
+      logger.error("Failed to initialize tag cache:", errorToObject(error));
       throw error;
     }
   }
@@ -107,6 +139,8 @@ export class TagResource {
    * Get the content for the resource
    */
   async getContent(): Promise<TextContent[]> {
+    logger.startTimer('get_tags_content');
+    
     try {
       if (!this.isInitialized) {
         logger.info('Tag cache not initialized, initializing now');
@@ -136,13 +170,24 @@ export class TagResource {
       };
 
       logger.debug(`Returning tag resource with ${response.tags.length} tags`);
+      
+      const elapsedMs = logger.endTimer('get_tags_content');
+      logger.logOperationResult(true, 'get_tags', elapsedMs, {
+        tagCount: response.tags.length,
+        totalOccurrences: response.metadata.totalOccurrences,
+        uniqueTags: response.metadata.uniqueTags,
+        scannedFiles: response.metadata.scannedFiles
+      });
+      
       return [{
         type: "text",
         text: JSON.stringify(response, null, 2),
         uri: this.getResourceDescription().uri
       }];
     } catch (error) {
-      logger.error("Failed to get tags:", error);
+      const elapsedMs = logger.endTimer('get_tags_content');
+      logger.logOperationResult(false, 'get_tags', elapsedMs);
+      logger.error("Failed to get tags:", errorToObject(error));
       throw error;
     }
   }

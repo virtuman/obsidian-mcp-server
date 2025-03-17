@@ -6,10 +6,31 @@ import { ObsidianClient } from "../../obsidian/client.js";
 import { BaseToolHandler } from "../base.js";
 import { PropertyManager } from "./manager.js";
 import { ObsidianProperties } from "./types.js";
-import { createLogger } from "../../utils/logging.js";
+import { createLogger, ErrorCategoryType } from "../../utils/logging.js";
 
 // Create a logger for property tools
 const logger = createLogger('PropertyTools');
+
+/**
+ * Helper function to safely convert any error to an object
+ */
+function errorToObject(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      errorCategory: ErrorCategoryType.CATEGORY_SYSTEM
+    };
+  } else if (typeof error === 'object' && error !== null) {
+    return error as Record<string, unknown>;
+  } else {
+    return { 
+      error: String(error),
+      errorCategory: ErrorCategoryType.CATEGORY_UNKNOWN
+    };
+  }
+}
 
 /**
  * Tool names for property operations
@@ -79,12 +100,26 @@ export class GetPropertiesToolHandler extends BaseToolHandler<GetPropertiesArgs>
   }
 
   async runTool(args: GetPropertiesArgs): Promise<Array<TextContent>> {
+    logger.startTimer(`get_properties_${args.filepath}`);
+    
     try {
       logger.debug(`Getting properties from: ${args.filepath}`);
       const result = await this.propertyManager.getProperties(args.filepath);
+      
+      const elapsedMs = logger.endTimer(`get_properties_${args.filepath}`);
+      logger.logOperationResult(true, 'get_properties', elapsedMs, {
+        filepath: args.filepath,
+        propertyCount: Object.keys(result.properties || {}).length
+      });
+      
       return this.createResponse(result);
     } catch (error) {
-      logger.error(`Error getting properties from ${args.filepath}:`, error);
+      const elapsedMs = logger.endTimer(`get_properties_${args.filepath}`);
+      logger.logOperationResult(false, 'get_properties', elapsedMs, {
+        filepath: args.filepath
+      });
+      
+      logger.error(`Error getting properties from ${args.filepath}:`, errorToObject(error));
       return this.handleError(error);
     }
   }
@@ -208,16 +243,36 @@ export class UpdatePropertiesToolHandler extends BaseToolHandler<UpdatePropertie
   }
 
   async runTool(args: UpdatePropertiesArgs): Promise<Array<TextContent>> {
+    logger.startTimer(`update_properties_${args.filepath}`);
+    
     try {
-      logger.debug(`Updating properties for: ${args.filepath}`);
+      logger.debug(`Updating properties for: ${args.filepath}`, {
+        filepath: args.filepath,
+        propertyCount: Object.keys(args.properties || {}).length,
+        replace: args.replace || false
+      });
+      
       const result = await this.propertyManager.updateProperties(
         args.filepath,
         args.properties,
         args.replace
       );
+      
+      const elapsedMs = logger.endTimer(`update_properties_${args.filepath}`);
+      logger.logOperationResult(true, 'update_properties', elapsedMs, {
+        filepath: args.filepath,
+        propertyCount: Object.keys(args.properties || {}).length,
+        success: result.success
+      });
+      
       return this.createResponse(result);
     } catch (error) {
-      logger.error(`Error updating properties for ${args.filepath}:`, error);
+      const elapsedMs = logger.endTimer(`update_properties_${args.filepath}`);
+      logger.logOperationResult(false, 'update_properties', elapsedMs, {
+        filepath: args.filepath
+      });
+      
+      logger.error(`Error updating properties for ${args.filepath}:`, errorToObject(error));
       return this.handleError(error);
     }
   }

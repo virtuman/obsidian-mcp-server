@@ -5,7 +5,8 @@ import { Tool, TextContent, ImageContent, EmbeddedResource } from "@modelcontext
 import { ObsidianClient } from "../obsidian/client.js";
 import { ObsidianError } from "../utils/errors.js";
 import { tokenCounter } from "../utils/tokenization.js";
-import { createLogger } from "../utils/logging.js";
+import { createLogger, ErrorCategoryType } from "../utils/logging.js";
+import { McpErrorCode } from "../mcp/types.js";
 
 // Create a logger for tool operations
 const logger = createLogger('Tools');
@@ -74,11 +75,12 @@ export abstract class BaseToolHandler<T = Record<string, unknown>> implements To
     const finalTokenCount = tokenCounter.countTokens(truncatedText);
     
     if (originalTokenCount > finalTokenCount) {
-      logger.debug(
-        `[${this.name}] Response truncated:`,
-        `original tokens=${originalTokenCount}`,
-        `truncated tokens=${finalTokenCount}`
-      );
+      logger.debug(`[${this.name}] Response truncated`, {
+        toolName: this.name,
+        originalTokens: originalTokenCount,
+        truncatedTokens: finalTokenCount,
+        truncationPercent: Math.round((1 - finalTokenCount / originalTokenCount) * 100)
+      });
     }
     
     return [{
@@ -96,17 +98,26 @@ export abstract class BaseToolHandler<T = Record<string, unknown>> implements To
     if (error instanceof ObsidianError) {
       throw error;
     }
+    
+    logger.error(`Tool '${this.name}' execution failed`, {
+      toolName: this.name,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+      errorCategory: ErrorCategoryType.CATEGORY_SYSTEM
+    });
+    
     if (error instanceof Error) {
       throw new ObsidianError(
         `Tool '${this.name}' execution failed: ${error.message}`,
-        50000, // Internal server error
+        McpErrorCode.INTERNAL_SERVER_ERROR,
         { originalError: error.stack }
       );
     }
+    
     throw new ObsidianError(
       `Tool '${this.name}' execution failed with unknown error`,
-      50000, // Internal server error
-      { error }
+      McpErrorCode.INTERNAL_SERVER_ERROR,
+      { error: String(error) }
     );
   }
 }
