@@ -1,10 +1,10 @@
 # Obsidian MCP Server
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
-[![Model Context Protocol](https://img.shields.io/badge/MCP-1.6.1-green.svg)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/Version-1.4.1-blue.svg)]()
+[![Model Context Protocol](https://img.shields.io/badge/MCP-1.7.0-green.svg)](https://modelcontextprotocol.io/)
+[![Version](https://img.shields.io/badge/Version-1.5.0-blue.svg)]()
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Status](https://img.shields.io/badge/Status-Stable-blue.svg)]()
+[![Status](https://img.shields.io/badge/Status-Stable-green.svg)]()
 [![GitHub](https://img.shields.io/github/stars/cyanheads/obsidian-mcp-server?style=social)](https://github.com/cyanheads/obsidian-mcp-server)
 
 A Model Context Protocol server designed for LLMs to interact with Obsidian vaults. Built with TypeScript and featuring secure API communication, efficient file operations, and comprehensive search capabilities, it enables AI assistants to seamlessly manage knowledge bases through a clean, flexible tool interface.
@@ -16,21 +16,25 @@ Requires the Local REST API plugin in Obsidian.
 ## Features
 
 ### File Operations
+
 - Atomic file/directory operations with validation
 - Resource monitoring and cleanup
 - Error handling and graceful failure
 
 ### Search System
+
 - Full-text search with configurable context
 - Advanced JsonLogic queries for files, tags, and metadata
 - Support for glob patterns and frontmatter fields
 
 ### Property Management
+
 - YAML frontmatter parsing and intelligent merging
 - Automatic timestamps (created by Obsidian, modified by server)
 - Custom field support
 
 ### Security & Performance
+
 - API key auth with rate limiting and SSL options
 - Resource monitoring and health checks
 - Graceful shutdown handling
@@ -41,6 +45,7 @@ Note: Requires Node.js
 
 1. Enable Local REST API plugin in Obsidian
 2. Clone and build:
+
 ```bash
 git clone git@github.com:cyanheads/obsidian-mcp-server.git
 cd obsidian-mcp-server
@@ -49,6 +54,7 @@ npm run build
 ```
 
 Or install from npm:
+
 ```bash
 npm install obsidian-mcp-server
 ```
@@ -84,24 +90,29 @@ Add to your MCP client settings (e.g., `claude_desktop_config.json` or `cline_mc
 Environment Variables:
 
 Required:
+
 - `OBSIDIAN_API_KEY`: Your API key from Obsidian's Local REST API plugin settings
 
 Connection Settings:
+
 - `VERIFY_SSL`: Enable SSL certificate verification (default: false) # This must be set to false for self-signed certificates. If you are running locally or don't understand what this means, this should be set to false.
 - `OBSIDIAN_PROTOCOL`: Protocol to use (default: "https")
 - `OBSIDIAN_HOST`: Host address (default: "127.0.0.1")
 - `OBSIDIAN_PORT`: Port number (default: 27124)
 
 Request Limits:
+
 - `REQUEST_TIMEOUT`: Request timeout in milliseconds (default: 5000)
 - `MAX_CONTENT_LENGTH`: Maximum response content length in bytes (default: 52428800 [50MB])
 - `MAX_BODY_LENGTH`: Maximum request body length in bytes (default: 52428800 [50MB])
 
 Rate Limiting:
+
 - `RATE_LIMIT_WINDOW_MS`: Rate limit window in milliseconds (default: 900000 [15 minutes])
 - `RATE_LIMIT_MAX_REQUESTS`: Maximum requests per window (default: 200)
 
 Tool Execution:
+
 - `TOOL_TIMEOUT_MS`: Tool execution timeout in milliseconds (default: 60000 [1 minute])
 
 ## Project Structure
@@ -124,22 +135,25 @@ src/
 ## Tools
 
 ### File Management
+
 ```typescript
 // List vault contents
-obsidian_list_files_in_vault: {}
+obsidian_list_files_in_vault: {
+}
 
 // List directory contents
 obsidian_list_files_in_dir: {
-  dirpath: string  // Path relative to vault root
+  dirpath: string; // Path relative to vault root
 }
 
 // Get file contents
 obsidian_get_file_contents: {
-  filepath: string  // Path relative to vault root
+  filepath: string; // Path relative to vault root
 }
 ```
 
 ### Search Operations
+
 ```typescript
 // Text search with context
 obsidian_find_in_file: {
@@ -171,6 +185,7 @@ obsidian_get_tags: {
 ```
 
 ### Content Modification
+
 ```typescript
 // Append to file
 obsidian_append_content: {
@@ -186,6 +201,7 @@ obsidian_patch_content: {
 ```
 
 ### Property Management
+
 ```typescript
 // Get note properties
 obsidian_get_properties: {
@@ -199,8 +215,8 @@ obsidian_update_properties: {
     title?: string,
     author?: string,
     // Note: created/modified timestamps are managed automatically
-    type?: Array<"concept" | "architecture" | "specification" | 
-      "protocol" | "api" | "research" | "implementation" | 
+    type?: Array<"concept" | "architecture" | "specification" |
+      "protocol" | "api" | "research" | "implementation" |
       "guide" | "reference">,
     tags?: string[],  // Must start with #
     status?: Array<"draft" | "in-progress" | "review" | "complete">,
@@ -219,21 +235,25 @@ obsidian_update_properties: {
 ## Best Practices
 
 ### File Operations
+
 - Use atomic operations with validation
 - Handle errors and monitor performance
 
 ### Search Implementation
+
 - Use appropriate search tool for the task:
   - obsidian_find_in_file for text search
   - obsidian_complex_search for metadata/tag filtering
 - Keep context size reasonable (default: 10 chars)
 
 ### Property Management
+
 - Use appropriate types and validate updates
 - Handle arrays and custom fields properly
 - Never set timestamps (managed automatically)
 
 ### Error Prevention
+
 - Validate inputs and handle errors gracefully
 - Monitor patterns and respect rate limits
 
