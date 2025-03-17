@@ -8,6 +8,11 @@
  * @module utils/logging
  */
 
+import fs from "fs";
+import path from "path";
+import process from "process";
+import winston from "winston";
+
 /**
  * Error categories following MCP standards
  */
@@ -90,6 +95,17 @@ export interface StandardizedErrorObject {
 }
 
 /**
+ * Winston-compatible log levels
+ */
+const winstonLogLevels = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  debug: 3,
+  trace: 4
+};
+
+/**
  * Logger configuration
  */
 export interface LoggerConfig {
@@ -103,6 +119,18 @@ export interface LoggerConfig {
   maskSensitiveData: boolean;
   /** List of field names to consider sensitive */
   sensitiveFields: string[];
+  /** Directory for log files */
+  logDir?: string;
+  /** Whether to log to files */
+  files?: boolean;
+  /** Custom file names for log files */
+  fileNames?: {
+    combined?: string;
+    error?: string;
+    warn?: string;
+    info?: string;
+    debug?: string;
+  };
 }
 
 /**
@@ -115,15 +143,26 @@ const DEFAULT_CONFIG: LoggerConfig = {
   includeTimestamps: true,
   includeLevel: true,
   maskSensitiveData: true,
-  sensitiveFields: ['password', 'token', 'secret', 'key', 'auth', 'credential']
+  sensitiveFields: ['password', 'token', 'secret', 'key', 'auth', 'credential'],
+  logDir: "logs",
+  files: true,
+  fileNames: {
+    combined: "combined.log",
+    error: "error.log",
+    warn: "warn.log",
+    info: "info.log",
+    debug: "debug.log"
+  }
 };
 
 /**
  * Enhanced logger for MCP server operations with structured logging support
+ * Implements file-based logging with zero console output
  */
 export class Logger {
   private config: LoggerConfig;
   private timers: Map<string, number> = new Map();
+  private logger: winston.Logger;
 
   /**
    * Creates a new logger instance
@@ -135,7 +174,124 @@ export class Logger {
     private name: string, 
     config: Partial<LoggerConfig> = {}
   ) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    this.config = { 
+      ...DEFAULT_CONFIG, 
+      ...config,
+      fileNames: {
+        ...DEFAULT_CONFIG.fileNames,
+        ...config.fileNames
+      }
+    };
+    
+    // Initialize logger with silent transport as fallback
+    this.logger = winston.createLogger({
+      levels: winstonLogLevels,
+      defaultMeta: { component: this.name },
+      transports: [
+        // Silent transport to prevent "no transports" warning
+        new winston.transports.Console({
+          silent: true
+        })
+      ]
+    });
+    
+    this.initializeLogger();
+  }
+
+  /**
+   * Initialize or reinitialize the Winston logger
+   */
+  private initializeLogger(): void {
+    if (this.config.files && this.config.logDir) {
+      if (!fs.existsSync(this.config.logDir)) {
+        try {
+          fs.mkdirSync(this.config.logDir, { recursive: true });
+        } catch (error) {
+          // Silently continue - we have a silent transport as fallback
+        }
+      }
+    }
+
+    // Create log format
+    const logFormat = winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.errors({ stack: true }),
+      winston.format.json()
+    );
+    
+    // Initialize transports array with a silent transport to avoid "no transports" warning
+    const transports: winston.transport[] = [
+      new winston.transports.Console({
+        silent: true, // Silent transport that doesn't output logs
+        format: logFormat
+      })
+    ];
+    
+    // Add file transports if enabled
+    if (this.config.files && this.config.logDir) {
+      try {
+        const fileNames = this.config.fileNames || DEFAULT_CONFIG.fileNames;
+        
+        // Combined log file
+        if (fileNames?.combined) {
+          transports.push(new winston.transports.File({
+            filename: path.join(this.config.logDir, fileNames.combined),
+            format: logFormat
+          }));
+        }
+        
+        // Level-specific log files
+        if (fileNames?.error) {
+          transports.push(new winston.transports.File({
+            filename: path.join(this.config.logDir, fileNames.error),
+            level: 'error',
+            format: logFormat
+          }));
+        }
+        
+        if (fileNames?.warn) {
+          transports.push(new winston.transports.File({
+            filename: path.join(this.config.logDir, fileNames.warn),
+            level: 'warn',
+            format: logFormat
+          }));
+        }
+        
+        if (fileNames?.info) {
+          transports.push(new winston.transports.File({
+            filename: path.join(this.config.logDir, fileNames.info),
+            level: 'info',
+            format: logFormat
+          }));
+        }
+        
+        if (fileNames?.debug) {
+          transports.push(new winston.transports.File({
+            filename: path.join(this.config.logDir, fileNames.debug),
+            level: 'debug',
+            format: logFormat
+          }));
+        }
+      } catch (error) {
+        // Silently continue with just the silent transport if file transports fail
+      }
+    }
+
+    // Replace logger configuration
+    this.logger.configure({
+      levels: winstonLogLevels,
+      level: LogLevel[this.config.level].toLowerCase(),
+      defaultMeta: { component: this.name },
+      transports
+    });
+  }
+
+  /**
+   * Maps internal LogLevel to Winston log level
+   */
+  private levelToWinstonLevel(level: LogLevel): string {
+    const levelName = LogLevel[level].toLowerCase();
+    return levelName === 'trace' ? 'debug' : levelName;
   }
 
   /**
@@ -223,34 +379,7 @@ export class Logger {
   }
 
   /**
-   * Creates a structured log entry
-   * 
-   * @param level - Log level
-   * @param message - Log message
-   * @param context - Optional context data
-   * @returns Structured log entry
-   */
-  private createLogEntry(
-    level: LogLevel, 
-    message: string, 
-    context?: Record<string, unknown>
-  ): StructuredLogEntry {
-    const entry: StructuredLogEntry = {
-      timestamp: new Date().toISOString(),
-      message,
-      component: this.name,
-      level
-    };
-    
-    if (context) {
-      entry.context = this.processSensitiveData(context);
-    }
-    
-    return entry;
-  }
-
-  /**
-   * Internal method to format and output a log message
+   * Internal method to log a message using Winston
    * 
    * @param level - Log level
    * @param message - Log message
@@ -263,50 +392,10 @@ export class Logger {
   ): void {
     if (level > this.config.level) return;
     
-    const entry = this.createLogEntry(level, message, context);
-    const parts: string[] = [];
+    const winstonLevel = this.levelToWinstonLevel(level);
+    const processedContext = context ? this.processSensitiveData(context) : undefined;
     
-    // Add timestamp if configured
-    if (this.config.includeTimestamps) {
-      parts.push(`[${entry.timestamp}]`);
-    }
-    
-    // Add level if configured
-    if (this.config.includeLevel) {
-      const levelStr = LogLevel[level] || 'UNKNOWN';
-      parts.push(`[${levelStr}]`);
-    }
-    
-    // Add component name
-    parts.push(`[${entry.component}]`);
-    
-    // Add message
-    parts.push(entry.message);
-    
-    // Format context if present
-    const contextStr = entry.context 
-      ? '\n' + JSON.stringify(entry.context, null, 2)
-      : '';
-    
-    // Output to console
-    const output = parts.join(' ') + contextStr;
-    
-    switch (level) {
-      case LogLevel.ERROR:
-        console.error(output);
-        break;
-      case LogLevel.WARN:
-        console.warn(output);
-        break;
-      case LogLevel.INFO:
-        console.info(output);
-        break;
-      case LogLevel.DEBUG:
-      case LogLevel.TRACE:
-      default:
-        console.debug(output);
-        break;
-    }
+    this.logger.log(winstonLevel, message, { context: processedContext });
   }
 
   /**
@@ -380,6 +469,7 @@ export class Logger {
    */
   setLevel(level: LogLevel): void {
     this.config.level = level;
+    this.logger.level = this.levelToWinstonLevel(level);
   }
 
   /**
@@ -462,4 +552,7 @@ export function createLogger(
 }
 
 // Create a global root logger
-export const rootLogger = createLogger('mcp-server');
+export const rootLogger = createLogger('obsidian-mcp-server', {
+  files: true,
+  logDir: "logs"
+});
