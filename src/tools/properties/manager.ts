@@ -1,15 +1,15 @@
 /**
  * Property manager for Obsidian notes
  */
-import { parse, stringify } from 'yaml';
 import { EOL } from 'os';
+import { parse, stringify } from 'yaml';
 import { ObsidianClient } from '../../obsidian/client.js';
 import { createLogger } from '../../utils/logging.js';
 import {
   ObsidianProperties,
   ObsidianPropertiesSchema,
-  PropertyUpdateSchema,
   PropertyManagerResult,
+  PropertyUpdateSchema,
   ValidationResult
 } from './types.js';
 
@@ -49,14 +49,14 @@ export class PropertyManager {
       // Validate against schema
       const result = ObsidianPropertiesSchema.safeParse(properties);
       if (!result.success) {
-        logger.warn('Property validation warnings:', result.error);
+        logger.warn('Property validation warnings:', { validationError: result.error });
         // Return the properties with fixed tags
         return properties;
       }
 
       return result.data;
     } catch (error) {
-      logger.error('Error parsing properties:', error);
+      logger.error('Error parsing properties:', error instanceof Error ? error : { error: String(error) });
       return {};
     }
   }
@@ -77,7 +77,7 @@ export class PropertyManager {
       const yaml = stringify(cleanProperties);
       return `---${EOL}${yaml}---${EOL}`;
     } catch (error) {
-      logger.error('Error generating properties:', error);
+      logger.error('Error generating properties:', error instanceof Error ? error : { error: String(error) });
       throw error;
     }
   }
@@ -164,7 +164,7 @@ export class PropertyManager {
         properties
       };
     } catch (error) {
-      logger.error(`Failed to get properties from ${filepath}:`, error);
+      logger.error(`Failed to get properties from ${filepath}:`, error instanceof Error ? error : { error: String(error) });
       return {
         success: false,
         message: `Failed to get properties: ${error instanceof Error ? error.message : String(error)}`,
@@ -189,7 +189,7 @@ export class PropertyManager {
       // Validate new properties
       const validation = this.validateProperties(newProperties);
       if (!validation.valid) {
-        logger.warn(`Invalid properties for ${filepath}:`, validation.errors);
+        logger.warn(`Invalid properties for ${filepath}:`, { errors: validation.errors });
         return {
           success: false,
           message: 'Invalid properties',
@@ -222,7 +222,7 @@ export class PropertyManager {
         properties: mergedProperties
       };
     } catch (error) {
-      logger.error(`Failed to update properties for ${filepath}:`, error);
+      logger.error(`Failed to update properties for ${filepath}:`, error instanceof Error ? error : { error: String(error) });
       return {
         success: false,
         message: `Failed to update properties: ${error instanceof Error ? error.message : String(error)}`,
