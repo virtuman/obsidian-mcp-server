@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=18.0.0"
   },
+	"bin": {
+		"obsidian-mcp-server": "build/index.js"
+	},
   "scripts": {
     "build": "tsc",
     "postbuild": "node -e \"if (process.platform !== 'win32') require('fs').chmodSync('build/index.js', '755')\"",
@@ -49,7 +52,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/cyanheads/obsidian-mcp-server.git"
+    "url": "git+ssh://git@github.com/virtuman/obsidian-mcp-server.git"
   },
   "bugs": {
     "url": "https://github.com/cyanheads/obsidian-mcp-server/issues"
